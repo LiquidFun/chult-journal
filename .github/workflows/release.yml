@@ -1,0 +1,45 @@
+# Every push to main (a new export from the campaign repo) becomes a release whose asset chult.tar.gz is the built site
+# (index.html and static/). brutenis.net downloads releases/latest/download/chult.tar.gz before it builds and serves
+# it at /chult/ (scripts/fetch-chult.mjs there).
+name: Release the site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The job creates releases and deletes old ones, nothing else.
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pinned to a commit like the blog's workflow: a tag can be moved by whoever controls the action's repository
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Pack the site
+        run: tar -czf chult.tar.gz index.html static
+
+      - name: Publish it as the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="export-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          gh release create "$tag" chult.tar.gz --target "$GITHUB_SHA" --latest \
+            --title "Journal export $(date -u +%F)" \
+            --notes "The built site at ${GITHUB_SHA::7}: unpack chult.tar.gz into /chult/."
+
+      # each release carries the whole site (~20 MB); the blog only ever needs the latest
+      - name: Keep the ten newest releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+            while read -r t; do gh release delete "$t" --cleanup-tag --yes; done
