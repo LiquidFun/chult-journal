@@ -545,6 +545,9 @@ const BOARD = 14;
 // screen px kept free for the HUD: session + date (top left), the place (bottom right) above the progress bar;
 // design px the bookmark slips stand above the pages (the HUD must clear them)
 const HUD_TOP = 54, HUD_BOTTOM = 32, TABS_UP = 78;
+// desktop UI scale (DM round 28: "the UI could be larger, I always had Firefox at 120%"): the book may grow 20% further on
+// big screens, and the HUD text is drawn 20% larger (--tj-ui in journal.css)
+const UI = 1.2;
 // Each spread rests LEAD (viewport heights) into its segment; O_F is how far a hovered corner lifts (book px).
 const LEAD = 0.24, O_F = [-82, -62];
 const SINGLE_BP = 760;
@@ -1931,12 +1934,12 @@ async function mountJournal(root, data) {
       const MAP_SZ = 0.86, mapW = 420 * MAP_SZ, tabs = 30;
       const MAP_X = PAGE_W + 20;   // map lies just beside the book, its corner barely touching the board
       const left = -(PAGE_W + BOARD) - tabs, right = MAP_X + mapW + 10;
-      const sceneW = right - left, sceneH = TABS_UP + PAGE_H + BOARD, room = vh - HUD_TOP - HUD_BOTTOM;
-      scale = Math.min((vw - 24) / sceneW, room / sceneH, 1.15);
-      scene.style.setProperty("--sx", `${Math.round(vw / 2 - ((left + right) / 2) * scale)}px`);
-      scene.style.setProperty("--sy", `${Math.round(HUD_TOP + Math.max(0, room - sceneH * scale) / 2 + (TABS_UP + PAGE_H / 2) * scale)}px`);
+      const hudTop = HUD_TOP * UI, sceneW = right - left, sceneH = TABS_UP + PAGE_H + BOARD, room = vh - hudTop - HUD_BOTTOM * UI;
+      scale = Math.min((vw - 24) / sceneW, room / sceneH, 1.15 * UI);
+      const sx = Math.round(vw / 2 - ((left + right) / 2) * scale), sy = Math.round(hudTop + Math.max(0, room - sceneH * scale) / 2 + (TABS_UP + PAGE_H / 2) * scale);
+      scene.style.setProperty("--sx", `${sx}px`);
+      scene.style.setProperty("--sy", `${sy}px`);
       M.map.style.setProperty("--msz", String(MAP_SZ));
-      const sx = Math.round(vw / 2 - ((left + right) / 2) * scale), sy = Math.round(HUD_TOP + Math.max(0, room - sceneH * scale) / 2 + (TABS_UP + PAGE_H / 2) * scale);
       whoBox.style.setProperty("--wx", `${Math.round(sx + (MAP_X + 6) * scale)}px`);       // under the map card, beside the book
       whoBox.style.setProperty("--wy", `${Math.round(sy + (PAGE_H / 2 - 222) * scale)}px`);
       whoBox.style.setProperty("--wsc", scale.toFixed(4));
@@ -3551,17 +3554,23 @@ async function mountShelf(cfg) {
   other.className = "tj-shelf-other";
   other.innerHTML = `<div class="tj-shelf-thumb"></div><span class="tj-shelf-label"></span>`;
   document.body.append(other);
-  // it lies in the free corner of the desk under the map card and the who's-who, wherever the layout put them (an open
-  // book fills the rest of the desk); no map column (phones, portrait screens): no book at the edge
+  // it lies in the lower right corner of the desk, about three fifths of it on the table and the rest beyond the edge
+  // (DM round 28); if the party's portraits reach down that far, it slides further off the edge, and with too little of
+  // it left on the desk (or on phones and portrait screens) it is put away
   function placeOther() {
-    const R = books[cur].root, map = R?.querySelector(".tj-map"), who = R?.querySelector(".tj-who");
-    const m = map?.getBoundingClientRect();
-    if (!m || !m.width || R.classList.contains("is-single")) { other.classList.add("is-off"); return; }
-    const w = who && !who.classList.contains("is-empty") ? who.getBoundingClientRect() : null;
-    const top = Math.max(m.bottom, w?.bottom || 0) + 22, width = Math.min(m.width * 0.6, 200);
-    other.classList.toggle("is-off", innerHeight - top < 50);   // (too little room left under the column)
-    Object.assign(other.style, { left: `${(m.left + (m.width - width) / 2).toFixed(0)}px`, top: `${top.toFixed(0)}px`, width: `${width.toFixed(0)}px` });
-    other.querySelector(".tj-shelf-card")?.style.setProperty("--k", (Math.round(width) / BOARD_W).toFixed(4));
+    const R = books[cur].root;
+    if (!R || R.classList.contains("is-single")) { other.classList.add("is-off"); return; }
+    const width = Math.round(Math.min(230, Math.max(130, innerWidth * 0.115))), height = (width * BOARD_H) / BOARD_W;
+    const left = innerWidth - width - Math.max(24, innerWidth * 0.03);
+    let top = innerHeight - height * 0.6;
+    const who = R.querySelector(".tj-who");
+    if (who && !who.classList.contains("is-empty")) {
+      const w = who.getBoundingClientRect();
+      if (w.right > left - 20 && w.bottom + 12 > top) top = w.bottom + 12;
+    }
+    other.classList.toggle("is-off", innerHeight - top < 36);
+    Object.assign(other.style, { left: `${left.toFixed(0)}px`, top: `${top.toFixed(0)}px`, width: `${width}px` });
+    other.querySelector(".tj-shelf-card")?.style.setProperty("--k", (width / BOARD_W).toFixed(4));
   }
   addEventListener("resize", () => placeOther());
   // the who's-who grows a second row when more companions join (and briefly while portraits fade out): follow it
@@ -3647,7 +3656,7 @@ async function mountShelf(cfg) {
       const B = await mount(to, true);
       B.place(land === "start" ? 0 : B.spreadCount() - 1);
       const rA = A.closedRect(), rB = B.closedRect();
-      // the book under the map, as laid out (its layout box, before the tilt)
+      // the book in the corner, as laid out (its layout box, before the tilt)
       let rT = other.offsetWidth ? { x: other.offsetLeft, y: other.offsetTop, w: other.offsetWidth, h: other.offsetHeight } : { w: 0 };
       if (!rT.w) rT = { x: -0.15 * rB.w, y: innerHeight - 0.2 * rB.h, w: 0.4 * rB.w, h: 0.4 * rB.h };   // (phones: no book at the edge)
       const tilt = parseFloat(getComputedStyle(other).getPropertyValue("--tilt")) || -14;

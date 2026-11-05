@@ -509,6 +509,10 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
 .tj-root .tj-hud-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(233,220,192,.08); }
 .tj-root .tj-hud-progress i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform: scaleX(var(--prog, 0)); transform-origin: 0 50%; transition: transform .3s linear; background: linear-gradient(90deg, rgba(184,149,92,.5), #d6b67c); }
 .tj-root .tj-hud-keys { position: absolute; right: 24px; top: 14px; font-family: var(--tj-fell); font-size: 14px; opacity: .55; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+/* desktop: the HUD text 20% larger (UI in journal.js scales the book's room to match); the place line at the bottom right
+   is gone there (DM round 28; the web edition puts the other book in that corner) */
+.tj-root:not(.is-single) :is(.tj-hud-session, .tj-hud-keys, .tj-hint, .tj-end) { zoom: 1.2; }
+.tj-root:not(.is-single) .tj-hud-place { display: none; }
 .tj-root .tj-hint {
   position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); z-index: 41;
   font-family: var(--tj-fell); font-style: italic; font-size: 18px; color: var(--tj-hud); text-shadow: 0 1px 4px rgba(0,0,0,.9);
@@ -1172,10 +1176,10 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
 .tj-root.is-arriving .tj-book-wrap, .tj-root.is-handing-off .tj-book-wrap { opacity: 0; }
 .tj-root.is-handing-off .tj-end { opacity: 0; transition: opacity .25s ease; }
 
-/* the other book: closed, lying in the free corner under the map card (placed by shelf.js), running off the bottom of
-   the desk; it lifts under the hand */
+/* the other book: closed, lying in the lower right corner of the desk (placed by shelf.js), running off the bottom edge;
+   it lifts under the hand */
 .tj-shelf-other {
-  --tilt: 9deg;
+  --tilt: -7deg;
   position: fixed; left: 0; top: 100vh; z-index: 900; width: 160px; aspect-ratio: 574 / 808;
   padding: 0; border: 0; background: none; cursor: pointer;
   transform: rotate(var(--tilt)); transition: transform .35s cubic-bezier(.3,.7,.3,1);
