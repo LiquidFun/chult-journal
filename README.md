@@ -6,7 +6,7 @@
 
 This is the journal of Oliver Lyonbrooke, an owlin gunslinger who becomes a necromancer along the way. It covers
 forty-eight sessions of a Dungeons & Dragons *Tomb of Annihilation* campaign, played from May 2024 to October 2026, in
-two books: 324 pages with about 280 ink-and-watercolour pictures. The rest of the party writes in the margins: Ofar in
+two books: 323 pages with 276 ink-and-watercolour pictures. The rest of the party writes in the margins: Ofar in
 blue capitals, Luth'ayen in pencil. Now and then a stamp marks a note from the Dungeon Master.
 
 ![Session 27: the first sight of Omu from the rim of the valley](.github/screenshots/omu.webp)
@@ -14,6 +14,21 @@ blue capitals, Luth'ayen in pencil. Now and then a stamp marks a note from the D
 ![A page turning in Session 19](.github/screenshots/turn.webp)
 
 ![Book II, Session 47: Acererak beside a sphere of annihilation](.github/screenshots/book2.webp)
+
+## By the numbers
+
+| | |
+|---|---|
+| Sessions played | 48, from May 2024 to October 2026 |
+| Pages | 323 in two books, about 30,000 words |
+| Pictures in the books | 276, plus 23 portraits for the party sidebar and the two covers |
+| Pictures generated | 729, to arrive at those 276 (many drafts and corrections per picture) |
+| Rounds of revision | about 30: Book I went through 28 published versions, Book II through 19 |
+| Feedback from the Dungeon Master | 275 tracked items, 124 of them notes left directly on the pages |
+| Human review | 20–30 hours |
+| Image generation cost | about $29 |
+| Code | about 5,000 lines of JavaScript and CSS, no framework |
+| Time | built in about ten days, 27 October to 5 November 2026 |
 
 ## How it was made
 
