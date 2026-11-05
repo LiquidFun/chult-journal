@@ -1176,34 +1176,38 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
    the desk; it lifts under the hand */
 .tj-shelf-other {
   --tilt: 9deg;
-  position: fixed; left: 0; top: 100vh; z-index: 900; width: 160px; aspect-ratio: 3 / 4;
+  position: fixed; left: 0; top: 100vh; z-index: 900; width: 160px; aspect-ratio: 574 / 808;
   padding: 0; border: 0; background: none; cursor: pointer;
-  transform: rotate(var(--tilt)); transform-origin: 50% 0; transition: transform .35s cubic-bezier(.3,.7,.3,1);
+  transform: rotate(var(--tilt)); transition: transform .35s cubic-bezier(.3,.7,.3,1);
 }
 .tj-shelf-other.is-off { display: none; }
 .tj-shelf-other[hidden] { display: none; }
-.tj-shelf-other img {
-  display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 3px 7px 7px 3px;
-  box-shadow: 0 1px 0 #d8c7a2, 1px 2px 0 #efe3c8, 2px 3px 0 #d8c7a2, 0 14px 28px rgba(0,0,0,.55), 0 4px 8px rgba(0,0,0,.4);
-  filter: brightness(.82) saturate(.9); transition: filter .35s ease;
-}
-.tj-shelf-other span {
-  position: absolute; left: 50%; top: -30px; transform: translateX(-50%) rotate(calc(-1 * var(--tilt))); white-space: nowrap;
-  font: italic 18px/1 "IM Fell English", Georgia, serif; color: #e9dcc0; text-shadow: 0 1px 4px rgba(0,0,0,.9);
-  opacity: 0; transition: opacity .3s ease;
+.tj-shelf-thumb { position: absolute; inset: 0; border-radius: 2px 7px 7px 2px;
+  box-shadow: 1px 2px 0 #d8c7a2, 2px 3px 0 #efe3c8, 3px 4px 0 #d8c7a2, 0 14px 28px rgba(0,0,0,.55), 0 4px 8px rgba(0,0,0,.4); }
+.tj-shelf-thumb .tj-shelf-card { transform: scale(var(--k, .28)); transform-origin: 0 0; filter: brightness(.8) saturate(.9); transition: filter .35s ease; }
+.tj-shelf-label {   /* beside the book, on the open desk to its left (above it are the party's portraits) */
+  position: absolute; right: calc(100% + 14px); top: 18%; transform: rotate(calc(-1 * var(--tilt))); white-space: nowrap;
+  font: italic 19px/1 "IM Fell English", Georgia, serif; color: #e9dcc0; text-shadow: 0 1px 4px rgba(0,0,0,.9);
+  opacity: 0; transition: opacity .3s ease; pointer-events: none;
 }
 .tj-shelf-other:hover, .tj-shelf-other:focus-visible { transform: translateY(-14px) rotate(calc(var(--tilt) - 4deg)); }
-.tj-shelf-other:hover img, .tj-shelf-other:focus-visible img { filter: none; }
-.tj-shelf-other:hover span, .tj-shelf-other:focus-visible span { opacity: 1; }
+.tj-shelf-other:hover .tj-shelf-card, .tj-shelf-other:focus-visible .tj-shelf-card { filter: none; }
+.tj-shelf-other:hover .tj-shelf-label, .tj-shelf-other:focus-visible .tj-shelf-label { opacity: 1; }
 .tj-shelf-other:focus-visible { outline: none; }
-.tj-shelf-other:focus-visible img { outline: 2px solid #c9a467; outline-offset: 4px; }
+.tj-shelf-other:focus-visible .tj-shelf-thumb { outline: 2px solid #c9a467; outline-offset: 4px; }
 .tj-shelf-other.is-busy { pointer-events: none; }
 
-/* a closed book in flight between the desk's middle and its edge */
-.tj-shelf-fly {
-  position: fixed; z-index: 1000; pointer-events: none; background: center / cover no-repeat; border-radius: 3px 7px 7px 3px;
-  box-shadow: 0 1px 0 #d8c7a2, 1px 2px 0 #efe3c8, 2px 3px 0 #d8c7a2, 0 22px 44px rgba(0,0,0,.55), 0 6px 12px rgba(0,0,0,.4);
-  will-change: transform, opacity;
+/* a closed book drawn by the journal's own cover code (shelf.js card()): front cover, and the back board on its reverse */
+.tj-root.tj-shelf-card { position: absolute; left: 0; top: 0; width: 574px; height: 808px; background: none; pointer-events: none; }
+.tj-shelf-flip { position: absolute; inset: 0; }
+.tj-shelf-flip > .tj-face--board { left: 0; top: 0; }
+.tj-shelf-card .is-back, .tj-shelf-card.show-back .is-front { visibility: hidden; }
+.tj-shelf-card.show-back .is-back { visibility: visible; }
+
+/* … in flight between the desk's middle and its edge */
+.tj-root.tj-shelf-fly { position: fixed; z-index: 1000; transform-origin: 50% 50%; will-change: transform; }
+.tj-shelf-fly .tj-face--board {
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.45), inset 0 0 26px rgba(0,0,0,.5), 3px 5px 0 #d8c7a2, 0 30px 60px rgba(0,0,0,.55), 0 8px 16px rgba(0,0,0,.4);
 }
 
-@media (prefers-reduced-motion: reduce) { .tj-shelf-other, .tj-shelf-other img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .tj-shelf-other, .tj-shelf-thumb .tj-shelf-card { transition: none; } }

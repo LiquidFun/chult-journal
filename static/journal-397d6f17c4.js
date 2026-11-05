@@ -3549,7 +3549,7 @@ async function mountShelf(cfg) {
   const other = document.createElement("button");
   other.type = "button";
   other.className = "tj-shelf-other";
-  other.innerHTML = `<img alt=""><span></span>`;
+  other.innerHTML = `<div class="tj-shelf-thumb"></div><span class="tj-shelf-label"></span>`;
   document.body.append(other);
   // it lies in the free corner of the desk under the map card and the who's-who, wherever the layout put them (an open
   // book fills the rest of the desk); no map column (phones, portrait screens): no book at the edge
@@ -3561,6 +3561,7 @@ async function mountShelf(cfg) {
     const top = Math.max(m.bottom, w?.bottom || 0) + 22, width = Math.min(m.width * 0.6, 200);
     other.classList.toggle("is-off", innerHeight - top < 50);   // (too little room left under the column)
     Object.assign(other.style, { left: `${(m.left + (m.width - width) / 2).toFixed(0)}px`, top: `${top.toFixed(0)}px`, width: `${width.toFixed(0)}px` });
+    other.querySelector(".tj-shelf-card")?.style.setProperty("--k", (Math.round(width) / BOARD_W).toFixed(4));
   }
   addEventListener("resize", () => placeOther());
   // the who's-who grows a second row when more companions join (and briefly while portraits fade out): follow it
@@ -3570,8 +3571,14 @@ async function mountShelf(cfg) {
     const o = near(cur);
     watchWho();
     placeOther();
-    other.querySelector("img").src = o.cover;
-    other.querySelector("span").textContent = o.title;
+    const thumb = other.querySelector(".tj-shelf-thumb");
+    if (thumb.dataset.book !== o.id) {   // the book's real front cover, scaled down to the button
+      const c = card(o);
+      c.style.setProperty("--k", ((parseFloat(other.style.width) || 160) / BOARD_W).toFixed(4));
+      thumb.replaceChildren(c);
+      thumb.dataset.book = o.id;
+    }
+    other.querySelector(".tj-shelf-label").textContent = o.title;
     other.setAttribute("aria-label", `Open ${o.title}`);
     other.hidden = false;
   };
@@ -3584,14 +3591,43 @@ async function mountShelf(cfg) {
   for (const ev of ["wheel", "touchmove", "keydown"]) addEventListener(ev, block, { capture: true, passive: false });
 
   const rectOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
-  // the transform that moves an element lying at rect a onto rect b (centre to centre, uniform scale, a turn); `back`:
-  // turned over (rotateY 180 shows the cover mirrored, which is how the back board looks)
-  const onto = (a, b, rot = 0, back = false) => `translate(${(b.x + b.w / 2 - a.x - a.w / 2).toFixed(1)}px, ${(b.y + b.h / 2 - a.y - a.h / 2).toFixed(1)}px) scale(${(b.w / a.w).toFixed(4)}) rotate(${rot}deg) rotateY(${back ? 180 : 0}deg)`;
-  const still = (rot = 0, back = false) => `translate(0px, 0px) scale(1) rotate(${rot}deg) rotateY(${back ? 180 : 0}deg)`;
-  function proxy(src, r) {   // a stand-in for a closed book, flying above everything
-    const p = document.createElement("div");
-    p.className = "tj-shelf-fly";
-    Object.assign(p.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px`, backgroundImage: `url("${src}")` });
+  /* A closed book as the engine draws it (buildCover / buildBackCover from journal.js, styled by the journal's CSS inside
+     a .tj-root of the book's volume): its front cover, and its back board (shown with .show-back). Design size
+     BOARD_W × BOARD_H (a page and its board); placed and scaled by the caller. */
+  const BOARD_W = 574, BOARD_H = 808;
+  function card(b) {
+    const c = document.createElement("div");
+    c.className = "tj-root tj-shelf-card";
+    c.dataset.volume = String(b.volume || 1);
+    const flip = document.createElement("div"), front = buildCover(b.cover, b.mark || ""), back = buildBackCover(b.cover);
+    flip.className = "tj-shelf-flip";
+    front.classList.add("is-front"); back.classList.add("is-back");
+    flip.append(front, back);
+    c.append(flip);
+    return c;
+  }
+  // a book turning over in flight, without 3D (backface-visibility proved unreliable): it narrows to its edge, the other
+  // side takes over at that instant, and it widens again; both use the same symmetric easing, so the swap is unseen
+  function turnOver(p, fromBack, toBack, dur) {
+    p.classList.toggle("show-back", fromBack);
+    if (fromBack === toBack) return [];
+    const timing = { duration: dur, easing: "ease-in-out", fill: "forwards" };
+    const was = p.querySelector(fromBack ? ".is-back" : ".is-front"), comes = p.querySelector(toBack ? ".is-back" : ".is-front");
+    comes.style.visibility = "visible";
+    return [
+      p.querySelector(".tj-shelf-flip").animate([{ transform: "scaleX(1)" }, { transform: "scaleX(.02)", offset: 0.5 }, { transform: "scaleX(1)" }], timing),
+      was.animate([{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0, offset: 0.5 }, { opacity: 0 }], timing),
+      comes.animate([{ opacity: 0 }, { opacity: 0, offset: 0.5 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], timing),
+    ];
+  }
+  // the transform that moves a proxy lying at rect a onto rect b (centre to centre, scaled to b's width, a turn)
+  const onto = (a, b, rot = 0) => `translate(${(b.x + b.w / 2 - a.x - a.w / 2).toFixed(1)}px, ${(b.y + b.h / 2 - a.y - a.h / 2).toFixed(1)}px) scale(${(b.w / BOARD_W).toFixed(4)}) rotate(${rot}deg)`;
+  const still = (r, rot = 0) => `translate(0px, 0px) scale(${(r.w / BOARD_W).toFixed(4)}) rotate(${rot}deg)`;
+  function proxy(b, r) {   // a stand-in for a closed book, flying above everything; laid out at rect r
+    const p = card(b);
+    p.classList.add("tj-shelf-fly");
+    Object.assign(p.style, { left: `${(r.x + r.w / 2 - BOARD_W / 2).toFixed(1)}px`, top: `${(r.y + r.h / 2 - BOARD_H / 2).toFixed(1)}px` });
+    p.k = r.w / BOARD_W;   // its scale at rest at r
     document.body.append(p);
     return p;
   }
@@ -3611,22 +3647,24 @@ async function mountShelf(cfg) {
       const B = await mount(to, true);
       B.place(land === "start" ? 0 : B.spreadCount() - 1);
       const rA = A.closedRect(), rB = B.closedRect();
-      let rT = rectOf(other.querySelector("img"));
+      // the book under the map, as laid out (its layout box, before the tilt)
+      let rT = other.offsetWidth ? { x: other.offsetLeft, y: other.offsetTop, w: other.offsetWidth, h: other.offsetHeight } : { w: 0 };
       if (!rT.w) rT = { x: -0.15 * rB.w, y: innerHeight - 0.2 * rB.h, w: 0.4 * rB.w, h: 0.4 * rB.h };   // (phones: no book at the edge)
       const tilt = parseFloat(getComputedStyle(other).getPropertyValue("--tilt")) || -14;
       const dur = reduced ? 1 : 1350 * (+q.get("slowswap") || 1), ease = "cubic-bezier(.5,.05,.2,1)";
       // a book closed on its back board turns over as it is picked up (and the arriving one, if it lands on its back)
       const backA = A.restingSpread() >= A.spreadCount() - 1, backB = land === "end";
-      const pA = proxy(from.cover, rA), pB = proxy(to.cover, rT);
-      pA.style.transform = still(0, backA);
-      pB.style.transform = still(tilt);
+      const pA = proxy(from, rA), pB = proxy(to, rT);
+      pA.style.transform = still(rA, 0);
+      pB.style.transform = still(rT, tilt);
       other.hidden = true;
       from.root.classList.add("is-handing-off");   // its book (and the end card) give way to the proxy
       to.root.classList.add("is-arriving");
       dock.classList.add("is-showing");
       const anims = [
-        pA.animate([{ transform: still(0, backA) }, { transform: onto(rA, rT, tilt) }], { duration: dur, easing: ease, fill: "forwards" }),
-        pB.animate([{ transform: still(tilt) }, { transform: onto(rT, rB, 0, backB) }], { duration: dur, easing: ease, fill: "forwards" }),
+        pA.animate([{ transform: still(rA, 0) }, { transform: onto(rA, rT, tilt) }], { duration: dur, easing: ease, fill: "forwards" }),
+        pB.animate([{ transform: still(rT, tilt) }, { transform: onto(rT, rB, 0) }], { duration: dur, easing: ease, fill: "forwards" }),
+        ...turnOver(pA, backA, false, dur), ...turnOver(pB, false, backB, dur),
         dock.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur * 0.75, delay: dur * 0.2, easing: "ease-in-out", fill: "forwards" }),
       ];
       await Promise.all(anims.map((a) => a.finished));
@@ -3645,7 +3683,6 @@ async function mountShelf(cfg) {
       history.replaceState(null, "", `#${to.id}`);
       document.title = to.pageTitle || document.title;
       showOther();
-      other.querySelector("img").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250 });
       pA.remove();
       pB.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, fill: "forwards" }).finished.then(() => pB.remove());
     } finally {
