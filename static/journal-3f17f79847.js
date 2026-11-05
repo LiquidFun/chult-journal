@@ -3055,28 +3055,35 @@ void main() {
      the direction is locked: bounce / reverse ticks at its end are ignored. A new gesture during a turn queues one more. When
      no page is left that way (the first or the last), the gesture passes through, so the page around the book scrolls. */
   const INTENT_PX = 30, GAP_MS = 180;
-  const WG = { on: false, dir: 0, last: 0, mags: [], peak: 0, acc: 0, committed: false, capture: false };
+  // Scrolling on within the same gesture turns more pages (DM round 28): after the first turn, every further STEP_PX of
+  // travel queues one more (about two wheel notches; a long trackpad fling riffles through several), at most MORE_MAX
+  // per gesture. Queued turns run back to back, quicker than a single one.
+  const STEP_PX = 200, MORE_MAX = 8, QUEUE_MAX = 8;
+  const WG = { on: false, dir: 0, last: 0, mags: [], peak: 0, acc: 0, more: 0, extra: 0, committed: false, capture: false };
   let queued = 0, rootH = 0;
   const engaged = () => { const top = rootTop - scrollY; rootH ||= root.offsetHeight; return top <= 1 && top + rootH >= vh - 1; };
   const afterTurns = () => { const a = gesture?.anim; let sp = a ? Math.round(locate(a.final).s) : restingSpread(); return sp + queued; };
   const canTurn = (dir) => { const sp = afterTurns(); return dir > 0 ? sp < leaves.length : sp > 0; };
   // past the closed back cover (dir > 0) or the closed front cover (dir < 0): may the reader leave this book that way?
   const canLeave = (dir) => !canTurn(dir) && !gesture?.anim && !!data.canLeave?.(dir);
-  function startTurn(dir) {
+  function startTurn(dir, quick = false) {
     // a corner already lifted by the hover: the turn continues from it (it never drops back first)
     const pk = gesture?.peek ? gesture : null, sp = restingSpread(), { s: cs, t: ct } = locate(pRender);
     if (ct > 0.0003 && ct < 0.9997 && !pk) return animateTurn(cs, ct, dir > 0 ? 1 : 0, { dur: 260 + 520 * (dir > 0 ? 1 - ct : ct), ease: liftEase });
     if (dir > 0 && sp < leaves.length) {
       const P0 = pk && pk.leaf === sp && pk.P?.[0] > 0 ? pk.P : null;
-      return animateTurn(sp, P0 ? clamp((PAGE_W - P0[0]) / (2 * PAGE_W), 0, 0.2) : 0, 1, { P0, top: P0 ? pk.top : false, dur: 760, ease: liftEase });
+      return animateTurn(sp, P0 ? clamp((PAGE_W - P0[0]) / (2 * PAGE_W), 0, 0.2) : 0, 1, { P0, top: P0 ? pk.top : false, dur: quick ? 480 : 760, ease: liftEase });
     }
     if (dir < 0 && sp > 0) {
       const P0 = pk && pk.leaf === sp - 1 && pk.P?.[0] < 0 ? pk.P : null;
-      return animateTurn(sp - 1, P0 ? clamp((PAGE_W - P0[0]) / (2 * PAGE_W), 0.8, 1) : 1, 0, { P0, top: P0 ? pk.top : false, dur: 760, ease: liftEase });
+      return animateTurn(sp - 1, P0 ? clamp((PAGE_W - P0[0]) / (2 * PAGE_W), 0.8, 1) : 1, 0, { P0, top: P0 ? pk.top : false, dur: quick ? 480 : 760, ease: liftEase });
     }
   }
   function requestTurn(dir) {
-    if (gesture?.anim) { queued = dir; return; }   // one more, right after the running turn
+    if (gesture?.anim) {   // queued: right after the running turn (a reverse replaces what was queued the other way)
+      queued = Math.sign(queued) === -dir ? dir : clamp(queued + dir, -QUEUE_MAX, QUEUE_MAX);
+      return;
+    }
     queued = 0;
     startTurn(dir);
   }
@@ -3085,13 +3092,18 @@ void main() {
     const fresh = !WG.on || now - WG.last > GAP_MS
       || (sgn === WG.dir && WG.peak > 0 && avg < WG.peak * 0.45 && mag > Math.max(2 * avg, 6) && mag > WG.mags[WG.mags.length - 1] * 1.6)   // picked up again
       || (sgn !== WG.dir && mag >= Math.max(60, 2.5 * avg));                                                                         // a deliberate reverse
-    if (fresh) Object.assign(WG, { on: true, dir: sgn, mags: [], peak: 0, acc: 0, committed: false, capture: canTurn(sgn) || canLeave(sgn) });
+    if (fresh) Object.assign(WG, { on: true, dir: sgn, mags: [], peak: 0, acc: 0, more: 0, extra: 0, committed: false, capture: canTurn(sgn) || canLeave(sgn) });
     WG.last = now;
     if (!WG.capture) return false;
     if (sgn !== WG.dir) return true;          // a bounce / reverse tick inside the gesture: swallowed
     WG.mags.push(mag); if (WG.mags.length > 8) WG.mags.shift();
     WG.peak = Math.max(WG.peak, mag);
     if (!WG.committed && ((WG.acc += mag) >= INTENT_PX || hard)) { WG.committed = true; if (canLeave(WG.dir)) data.leave(WG.dir); else requestTurn(WG.dir); }
+    else if (WG.committed && (WG.more += mag) >= STEP_PX && WG.extra < MORE_MAX) {   // scrolled on: one page more
+      WG.more -= STEP_PX;
+      WG.extra++;
+      if (canTurn(WG.dir)) requestTurn(WG.dir);   // (never past a cover into the other book: that takes a fresh gesture)
+    }
     return true;
   }
   const blocked = (t) => MV?.isOpen || !lb.hidden || !psheet.hidden || t?.closest?.(".tj-mv, .tj-psheet, .tj-lb, .tj-who-card, .tj-dm-card, .tj-nui");
@@ -3357,7 +3369,7 @@ void main() {
       gesture = null; pRender = A.final; pVel = 0; lastNow = 0;
       endJump();
       update(true);
-      if (queued) { const d = queued; queued = 0; startTurn(d); }   // a gesture that came during the turn
+      if (queued) { const d = Math.sign(queued); queued -= d; startTurn(d, true); }   // turns queued during this one
       return;
     }
     if (gesture && gesture.dragging) { update(true); return; }
