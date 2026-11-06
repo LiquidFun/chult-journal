@@ -58,6 +58,10 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
   opacity: 0; transition: opacity 1.4s ease;
 }
 .tj-root .tj-env.is-on { opacity: 1; }
+/* Both desks are layers for good, so that a crossfade composites two finished pictures. Made layers just for the fade,
+   they took the light, the vignette and the book along into layers of their own, and gave them back afterwards; each
+   way, the whole screen was rasterized again. */
+.tj-root .tj-env { will-change: opacity; }
 /* procedural placeholders, replaced when assets/env_<key>.* exists (inline style wins) */
 .tj-root .tj-env[data-env] {
   background-image:
@@ -129,12 +133,15 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
   width: 0; height: var(--tj-ph);
   transform: translateX(var(--shift, 0px));
 }
+/* the shadow the book throws on the desk: a box-shadow, which every engine draws from a cached blur, rather than a blurred
+   box (a filter is re-applied whenever anything above it is redrawn, i.e. on every frame of a turn). The box sits 15px
+   inside the book, where the book covers it (a box-shadow leaves its own box empty); offset and spread put the shadow
+   where the blurred box lay: 14px right of the book and 18px below its top, as wide as the book and 30px taller */
 .tj-root .tj-book-shadow {
-  position: absolute; top: calc(var(--tj-ph) / -2 - 4px); height: calc(var(--tj-ph) + 30px);
-  left: var(--shl, -580px); width: var(--shw, 1160px);
-  background: rgba(0,0,0,.75); filter: blur(26px); border-radius: 18px;
-  transform: translate(calc(var(--shift, 0px) + 14px), 22px);
-  opacity: .8;
+  position: absolute; top: calc(var(--tj-ph) / -2); height: var(--tj-ph);
+  left: calc(var(--shl, -580px) + 15px); width: calc(var(--shw, 1160px) - 30px);
+  border-radius: 18px; box-shadow: 14px 33px 52px 15px rgba(0,0,0,.6);
+  transform: translateX(var(--shift, 0px));
 }
 
 /* boards (covers under the page blocks) */
@@ -202,8 +209,11 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
 .tj-root .tj-strip.is-under { width: 96px; background: linear-gradient(90deg, rgba(24,12,2,.62) 0, rgba(24,12,2,.3) 14px, rgba(24,12,2,.1) 48px, rgba(24,12,2,0) 110px); }
 .tj-root .tj-strip.is-front { display: none; } /* folded into the flap's soft shadow */
 .tj-root .tj-strip.is-crease { width: 150px; background: linear-gradient(90deg, rgba(24,12,2,.42) 0, rgba(24,12,2,.22) 8px, rgba(24,12,2,.06) 30px, rgba(255,247,226,.24) 58px, rgba(255,247,226,.07) 104px, rgba(255,247,226,0) 150px); }
-/* layers: only while a turn is in progress (at rest everything is plain, so text rasterizes crisply) */
-.tj-root .tj-leafbox:not(.is-rest):not(.is-turned) :is(.tj-fold-back, .tj-flap-shadow, .tj-strip) { will-change: transform; }
+/* layers: only while a turn is in progress. The front is one too, though it never moves: cut by a new clip-path every
+   frame, a front without a layer of its own re-rasterized everything under it (desk, shadow, the page beneath) on every
+   frame; with one, the cut is applied when compositing. Untransformed, its text rasterizes exactly as at rest
+   (dev/crisp_check.py: identical pixels mid-turn). */
+.tj-root .tj-leafbox:not(.is-rest):not(.is-turned) :is(.tj-fold-front, .tj-fold-back, .tj-flap-shadow, .tj-strip) { will-change: transform; }
 /* while moving, figures are drawn as-is instead of live-blended with the paper (the turn stays cheap) */
 /* (the ink keeps its stroke and soft edge while a page moves: dropping them made every turn flash thinner text, DM round 25;
    headless Firefox and Chromium showed no measurable cost) */
@@ -463,6 +473,8 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
 .tj-root .tj-map-view { position: relative; width: 380px; height: 520px; overflow: hidden; border: 2px solid rgba(58,36,19,.75); box-shadow: 0 0 0 4px rgba(232,216,180,1), 0 0 0 5px rgba(58,36,19,.45); }
 .tj-root .tj-map-pan { position: absolute; left: 0; top: 0; transform-origin: 0 0; transform: translate(var(--px, 0px), var(--py, 0px)) scale(var(--pz, .4));
   transition: transform .95s cubic-bezier(.45,.05,.3,1); }
+/* (No will-change here: a sheet that stays a layer is drawn turned by the card's tilt when composited, and comes out
+   visibly softer than one rastered in place (dev/map_crisp.py). It is a layer only while it glides.) */
 .tj-root .tj-map .tj-head { position: absolute; left: 0; top: 0; width: 40px; height: 40px; offset-rotate: 0deg; offset-distance: 0px;
   will-change: transform; pointer-events: none; transition: offset-distance .95s cubic-bezier(.45,.05,.3,1); }
 .tj-root .tj-map .tj-head svg { display: block; overflow: visible; }
@@ -507,7 +519,7 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
   font-size: 15px; line-height: 18px; font-style: italic; color: rgba(233,220,192,.8); text-align: right;
 }
 .tj-root .tj-hud-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(233,220,192,.08); }
-.tj-root .tj-hud-progress i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform: scaleX(var(--prog, 0)); transform-origin: 0 50%; transition: transform .3s linear; background: linear-gradient(90deg, rgba(184,149,92,.5), #d6b67c); }
+.tj-root .tj-hud-progress i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform: scaleX(var(--prog, 0)); transform-origin: 0 50%; transition: transform .3s linear; background: linear-gradient(90deg, rgba(184,149,92,.5), #d6b67c); will-change: transform; }   /* (a layer for good: one made for each transition, and dropped after it, re-rasterized whatever lies above it) */
 .tj-root .tj-hud-keys { position: absolute; right: 24px; top: 14px; font-family: var(--tj-fell); font-size: 14px; opacity: .55; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
 /* desktop: the HUD text 20% larger (UI in journal.js scales the book's room to match); the place line at the bottom right
    is gone there (DM round 28; the web edition puts the other book in that corner) */
@@ -566,8 +578,10 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
   .tj-root .tj-hint::after { animation: none; }
 }
 
-/* ---------- lamp light falling across the book and map (added by main agent) ---------- */
-.tj-root .tj-lamp-over { position: absolute; inset: 0; pointer-events: none; }
+/* ---------- lamp light falling across the book and map ---------- */
+/* A layer for good: anything drawn above a turning page has to become a layer of its own while the page turns, and this
+   one, made a layer at every turn and dropped after it, re-rasterized the whole screen twice per turn (4K: ~0.3 s). */
+.tj-root .tj-lamp-over { position: absolute; inset: 0; pointer-events: none; will-change: opacity; }
 .tj-root .tj-lamp-over::before { /* darkness gathers away from the lamp (plain alpha, no multiply) */
   content: ""; position: absolute; inset: 0;
   background: radial-gradient(ellipse 95% 95% at var(--lx, 22%) var(--ly, 14%), rgba(var(--lamb, 14,8,3),0) 32%, rgba(var(--lamb, 14,8,3),.24) 80%, rgba(var(--lamb, 14,8,3),.4) 118%);

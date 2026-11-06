@@ -1121,6 +1121,16 @@ function legPath(leg, P, seed) {
   return catmull(w);
 }
 
+/* the region of a route mask: the bounds of the leg's path (its control points hold the curve) plus the mask's stroke.
+   A mask as large as the sheet made every reveal step re-rasterize the whole map at every leg (Chromium, 4K: seconds
+   of raster per page turn); bounded, a step redraws only the legs that changed. */
+function maskBox(d, pad) {
+  const n = d.match(/-?\d*\.?\d+/g).map(Number);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i + 1 < n.length; i += 2) { x0 = Math.min(x0, n[i]); x1 = Math.max(x1, n[i]); y0 = Math.min(y0, n[i + 1]); y1 = Math.max(y1, n[i + 1]); }
+  return `x="${Math.floor(x0 - pad)}" y="${Math.floor(y0 - pad)}" width="${Math.ceil(x1 - x0 + 2 * pad)}" height="${Math.ceil(y1 - y0 + 2 * pad)}"`;
+}
+
 /* Map sheets. The route lives on one or more sheets ("chult" = the base sheet described by route.image/crop/
    scale/size; others under route.sheets, e.g. the city of Port Nyanzaru). Legs and waypoints carry `sheet`
    (default "chult"). Waypoints stay one list in travel order; each sheet reveals its own ink up to where the party
@@ -1155,7 +1165,7 @@ function buildMap(root, route, urls, uid) {
       <div class="tj-map-pan" style="width:${W}px;height:${H}px">
         <img alt="" width="${W}" height="${H}" src="${urls[key] || ""}" decoding="async">
         <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">
-          <defs>${legs.map((l, i) => `<mask id="tj-mask-${uid}-${key}-${i}" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
+          <defs>${legs.map((l, i) => `<mask id="tj-mask-${uid}-${key}-${i}" maskUnits="userSpaceOnUse" ${maskBox(l.d, 30)}>
               <path class="tj-route-mask" d="${l.d}" fill="none" stroke="#fff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/></mask>`).join("")}
           </defs>
           ${off ? `<g class="tj-offmap"><path d="M${off[0] + 120},${off[1] + 46} L${off[0] + 30},${off[1] + 46}" stroke="#3a2413" stroke-width="4" fill="none"/><path d="M${off[0] + 46},${off[1] + 34} L${off[0] + 30},${off[1] + 46} L${off[0] + 46},${off[1] + 58}" stroke="#3a2413" stroke-width="4" fill="none"/><text x="${off[0] + 130}" y="${off[1] + 56}">${route.offmap.label}</text></g>` : ""}
@@ -1238,7 +1248,7 @@ function buildMapViewer(stage, route, urls, M, onGo) {
     return `<div class="tj-mv-pan" data-sheet="${key}" hidden>
         <img alt="Map of ${cfgs[key].title || key}" draggable="false">
         <svg aria-hidden="true">
-          <defs>${legs.map((l, i) => `<mask id="tj-mvm-${key}-${i}" maskUnits="userSpaceOnUse" x="0" y="0" width="4000" height="4000"><path class="tj-route-mask" d="${l.d}" fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></mask>`).join("")}</defs>
+          <defs>${legs.map((l, i) => `<mask id="tj-mvm-${key}-${i}" maskUnits="userSpaceOnUse" ${maskBox(l.d, 18)}><path class="tj-route-mask" d="${l.d}" fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></mask>`).join("")}</defs>
           <g class="tj-routes">${legs.map((l, i) => `<path class="tj-route is-${l.style}" d="${l.d}" mask="url(#tj-mvm-${key}-${i})"/>`).join("")}</g>
           <g class="tj-wps">${wps.map((w) => `<g class="tj-wp is-hidden" data-i="${w.gi}" transform="translate(${w.vp[0].toFixed(1)},${w.vp[1].toFixed(1)})" role="button" tabindex="0" aria-label="${w.label} (session ${w.session})"><circle class="ring" r="13"/><text y="1">${w.session}</text></g>`).join("")}</g>
           <g class="tj-head"><circle class="dot" r="6"/></g>
@@ -1499,7 +1509,9 @@ async function mountJournal(root, data) {
   const stage = $(".tj-stage"), world = $(".tj-world"), scene = $(".tj-scene"), bookWrap = $(".tj-book-wrap");
   const book = $(".tj-book"), leafEl = $(".tj-leaf"), slotL = $(".tj-slot-left"), slotR = $(".tj-slot-right");
   const boardL = $(".tj-board-left"), boardR = $(".tj-board-right"), shadow = $(".tj-book-shadow");
-  const envEls = [...root.querySelectorAll(".tj-env")], light = $(".tj-world");
+  // the lamp's place and colour go on the two layers that draw it: set on an ancestor of the book (as they were), a change
+  // of desk restyled every element of the open pages (~40 ms mid-turn)
+  const envEls = [...root.querySelectorAll(".tj-env")], lamps = [$(".tj-light"), $(".tj-lamp-over")];
   const hudN = $(".tj-hud-session .n"), hudD = $(".tj-hud-session .d"), hudP = $(".tj-hud-place"), prog = $(".tj-hud-progress i");
   const hint = $(".tj-hint"), endCard = $(".tj-end"), spacer = $(".tj-spacer"), loading = $(".tj-loading"), mapToggle = $(".tj-map-toggle");
   const castL = slotL.querySelector(".tj-cast"), castR = slotR.querySelector(".tj-cast");
@@ -2721,11 +2733,13 @@ void main() {
     envEls[envFront].classList.remove("is-on");
     envFront = 1 - envFront;
     const lamp = ENV_LIGHT[key] || ENV_LIGHT.ship;
-    light.style.setProperty("--lx", lamp.x);
-    light.style.setProperty("--ly", lamp.y);
-    light.style.setProperty("--lc", lamp.c);
-    light.style.setProperty("--lglow", String(lamp.glow ?? 0.18));
-    light.style.setProperty("--lamb", lamp.amb || "14,8,3");
+    for (const l of lamps) {
+      l.style.setProperty("--lx", lamp.x);
+      l.style.setProperty("--ly", lamp.y);
+      l.style.setProperty("--lc", lamp.c);
+      l.style.setProperty("--lglow", String(lamp.glow ?? 0.18));
+      l.style.setProperty("--lamb", lamp.amb || "14,8,3");
+    }
     root.dataset.flicker = lamp.flicker || "none";
   }
 
@@ -3055,15 +3069,25 @@ void main() {
      the direction is locked: bounce / reverse ticks at its end are ignored. A new gesture during a turn queues one more. When
      no page is left that way (the first or the last), the gesture passes through, so the page around the book scrolls. */
   const INTENT_PX = 30, GAP_MS = 180;
+  // A busy main thread (a slow machine, a huge screen) holds the wheel events back, and the browser merges what waited
+  // into one event: its delta is the sum, its time that of the last notch. Gaps to such an event aren't pauses: one quick
+  // spin then looked like two gestures and turned two pages (DM, at 4K). An event that waited over LATE_MS and is
+  // clearly larger than the one before it is taken for such a merge, and continues the gesture.
+  const LATE_MS = 60;
   // (DM round 28/29: turning more pages for more scrolling, by distance or by keeping the wheel going, was tried and
-  // rolled back: one gesture is one page.)
-  const WG = { on: false, dir: 0, last: 0, mags: [], peak: 0, acc: 0, committed: false, capture: false };
+  // rolled back: one gesture is one page.) But a gesture that closes the book and keeps going for LEAVE_PX more once
+  // the cover lies shut does leave it (web edition: the other book comes); otherwise a continuous spin never could.
+  const LEAVE_PX = 90;
+  const WG = { on: false, dir: 0, last: 0, mags: [], peak: 0, acc: 0, after: 0, committed: false, capture: false };
   let queued = 0, rootH = 0;
   const engaged = () => { const top = rootTop - scrollY; rootH ||= root.offsetHeight; return top <= 1 && top + rootH >= vh - 1; };
   const afterTurns = () => { const a = gesture?.anim; let sp = a ? Math.round(locate(a.final).s) : restingSpread(); return sp + queued; };
   const canTurn = (dir) => { const sp = afterTurns(); return dir > 0 ? sp < leaves.length : sp > 0; };
   // past the closed back cover (dir > 0) or the closed front cover (dir < 0): may the reader leave this book that way?
   const canLeave = (dir) => !canTurn(dir) && !gesture?.anim && !!data.canLeave?.(dir);
+  // …or will be, once the turn that is shutting the cover now has ended (a scroll in its last moments waits for it)
+  const willLeave = (dir) => !canTurn(dir) && !!gesture?.anim && !!data.canLeave?.(dir);
+  let queuedLeave = 0;
   function startTurn(dir) {
     // a corner already lifted by the hover: the turn continues from it (it never drops back first)
     const pk = gesture?.peek ? gesture : null, sp = restingSpread(), { s: cs, t: ct } = locate(pRender);
@@ -3082,18 +3106,25 @@ void main() {
     queued = 0;
     startTurn(dir);
   }
-  function intent(sgn, mag, now, hard) {   // → whether this input belongs to a captured gesture (the caller then cancels its default)
+  function intent(sgn, mag, now, hard, waited = 0) {   // → whether this input belongs to a captured gesture (the caller then cancels its default)
     const recent = WG.mags.slice(-3), avg = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
-    const fresh = !WG.on || now - WG.last > GAP_MS
-      || (sgn === WG.dir && WG.peak > 0 && avg < WG.peak * 0.45 && mag > Math.max(2 * avg, 6) && mag > WG.mags[WG.mags.length - 1] * 1.6)   // picked up again
+    const merged = WG.on && sgn === WG.dir && waited > LATE_MS && mag > 1.5 * (WG.mags[WG.mags.length - 1] || Infinity);
+    const fresh = !WG.on || (now - WG.last > GAP_MS && !merged)
+      || (!merged && sgn === WG.dir && WG.peak > 0 && avg < WG.peak * 0.45 && mag > Math.max(2 * avg, 6) && mag > WG.mags[WG.mags.length - 1] * 1.6)   // picked up again
       || (sgn !== WG.dir && mag >= Math.max(60, 2.5 * avg));                                                                         // a deliberate reverse
-    if (fresh) Object.assign(WG, { on: true, dir: sgn, mags: [], peak: 0, acc: 0, committed: false, capture: canTurn(sgn) || canLeave(sgn) });
+    if (fresh) Object.assign(WG, { on: true, dir: sgn, mags: [], peak: 0, acc: 0, after: 0, committed: false, capture: canTurn(sgn) || canLeave(sgn) || willLeave(sgn) });
     WG.last = now;
     if (!WG.capture) return false;
     if (sgn !== WG.dir) return true;          // a bounce / reverse tick inside the gesture: swallowed
     WG.mags.push(mag); if (WG.mags.length > 8) WG.mags.shift();
     WG.peak = Math.max(WG.peak, mag);
-    if (!WG.committed && ((WG.acc += mag) >= INTENT_PX || hard)) { WG.committed = true; if (canLeave(WG.dir)) data.leave(WG.dir); else requestTurn(WG.dir); }
+    if (!WG.committed && ((WG.acc += mag) >= INTENT_PX || hard)) {
+      WG.committed = true;
+      if (canLeave(WG.dir)) data.leave(WG.dir);
+      else if (willLeave(WG.dir)) { queuedLeave = WG.dir; WG.after = -Infinity; }
+      else requestTurn(WG.dir);
+    }
+    else if (WG.committed && canLeave(WG.dir) && (WG.after += mag) >= LEAVE_PX) { WG.after = -Infinity; data.leave(WG.dir); }   // (only counts once the cover is shut: canLeave waits for the turn)
     return true;
   }
   const blocked = (t) => MV?.isOpen || !lb.hidden || !psheet.hidden || t?.closest?.(".tj-mv, .tj-psheet, .tj-lb, .tj-who-card, .tj-dm-card, .tj-nui");
@@ -3103,7 +3134,8 @@ void main() {
     if (!d) return;
     const px = d * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? vh : 1);
     // gaps are measured on the inputs' own time (a busy frame delays the handler, not the input); tests may pass e.tjTime
-    if (intent(Math.sign(px), Math.abs(px), e.tjTime ?? (e.timeStamp || performance.now()), e.deltaMode !== 0)) e.preventDefault();
+    const at = e.tjTime ?? (e.timeStamp || performance.now()), waited = e.tjTime === undefined ? performance.now() - at : 0;
+    if (intent(Math.sign(px), Math.abs(px), at, e.deltaMode !== 0, waited)) e.preventDefault();
   }, { passive: false });
   let touch = null;   // vertical finger swipes (horizontal ones drag the page itself)
   addEventListener("touchstart", (e) => { touch = !frozen && e.touches.length === 1 && !blocked(e.target) ? { x: e.touches[0].clientX, y: e.touches[0].clientY, y1: e.touches[0].clientY, v: null } : null; }, { passive: true });
@@ -3360,6 +3392,7 @@ void main() {
       endJump();
       update(true);
       if (queued) { const d = queued; queued = 0; startTurn(d); }   // a gesture that came during the turn
+      if (queuedLeave) { const d = queuedLeave; queuedLeave = 0; if (canLeave(d)) data.leave(d); }
       return;
     }
     if (gesture && gesture.dragging) { update(true); return; }
@@ -3597,8 +3630,19 @@ async function mountShelf(cfg) {
   other.addEventListener("pointerenter", () => mount(near(cur), true));   // a hand reaching for it: get it ready
   other.addEventListener("focus", () => mount(near(cur), true));
 
-  // while the books change places, no input reaches either journal
-  const block = (e) => { if (busy) { e.preventDefault(); e.stopImmediatePropagation(); } };
+  // while the books change places, no input reaches either journal; and the scroll that carried the reader across keeps
+  // being swallowed until the wheel rests (QUIET_MS), so the arriving book lies closed until the next scroll. Gaps are
+  // taken on the inputs' own time, and an input that waited for a busy main thread (the arriving book settling in)
+  // never ends the swallowing: its gap is the wait, not a rest of the wheel.
+  const QUIET_MS = 250, LATE_MS = 60;
+  let lastInput = 0, settling = false;
+  const block = (e) => {
+    const now = performance.now(), at = e.timeStamp || now, gap = at - lastInput;
+    lastInput = at;
+    if (e.type === "keydown") { if (busy) { e.preventDefault(); e.stopImmediatePropagation(); } return; }
+    if (busy || (settling && (gap < QUIET_MS || now - at > LATE_MS))) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    settling = false;
+  };
   for (const ev of ["wheel", "touchmove", "keydown"]) addEventListener(ev, block, { capture: true, passive: false });
 
   const rectOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
@@ -3698,6 +3742,7 @@ async function mountShelf(cfg) {
       pB.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, fill: "forwards" }).finished.then(() => pB.remove());
     } finally {
       busy = false;
+      settling = true;
       other.classList.remove("is-busy");
     }
   }
