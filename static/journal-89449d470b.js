@@ -1326,15 +1326,24 @@ function buildMapViewer(stage, route, urls, M, onGo) {
     $(".tj-mv-title").textContent = `${cfgs[key].title || key} — where we've been`;
     select(-1);
     if (!cur.loaded) {
+      // (S, not cur: a tab tapped or the viewer closed while this sheet loads changes cur, and the sheet that loaded
+      // must be the one marked loaded; and the wait ends at the load event or after 6 s, whichever is first, as
+      // decode() may never settle in some browsers: the map then stayed "unfolding" until the page was reloaded)
+      const S = cur;
       loading.hidden = false;
-      cur.img.decoding = "async";
-      cur.img.src = urls[key] || "";
-      try { await cur.img.decode(); } catch { /* shown as soon as it loads */ }
-      [cur.W, cur.H] = cur.size || [cur.img.naturalWidth, cur.img.naturalHeight]; cur.loaded = true;
-      Object.assign(cur.img.style, { width: `${cur.W}px`, height: `${cur.H}px` });
-      cur.svg.setAttribute("width", cur.W); cur.svg.setAttribute("height", cur.H); cur.svg.setAttribute("viewBox", `0 0 ${cur.W} ${cur.H}`);
-      loading.hidden = true;
+      S.img.decoding = "async";
+      S.img.src = urls[key] || "";
+      if (!S.img.complete) await Promise.race([
+        S.img.decode().catch(() => {}),
+        new Promise((r) => { S.img.addEventListener("load", r, { once: true }); S.img.addEventListener("error", r, { once: true }); }),
+        new Promise((r) => setTimeout(r, 6000)),
+      ]);
+      [S.W, S.H] = S.size || [S.img.naturalWidth, S.img.naturalHeight]; S.loaded = true;
+      Object.assign(S.img.style, { width: `${S.W}px`, height: `${S.H}px` });
+      S.svg.setAttribute("width", S.W); S.svg.setAttribute("height", S.H); S.svg.setAttribute("viewBox", `0 0 ${S.W} ${S.H}`);
+      if (S !== cur) return;   // (another sheet was asked for meanwhile: its own show() lays it out)
     }
+    loading.hidden = true;
     zMin = Math.min(view.clientWidth / cur.W, view.clientHeight / cur.H) * 0.98;
     const head = syncRoute(cur);
     if (centreOn && head) frame(head.x - 380, head.y - 300, head.x + 380, head.y + 300); else fitRoute();
@@ -1755,6 +1764,7 @@ async function mountJournal(root, data) {
   let F = null;
   const leafCache = new Map();   // leaf index → prepared DOM (built ahead of time, so a turn never starts with cloning)
   function cloneFace(face) {
+    fitPage(face);
     const c = face.cloneNode(true);
     c.removeAttribute("id");
     // a prepared copy must never paint a frame without its pictures: decode now, paint synchronously
@@ -1928,11 +1938,12 @@ async function mountJournal(root, data) {
 
   function place(slot, face) {
     for (const c of [...slot.children]) if (!c.classList.contains("tj-cast")) c.remove();
+    fitPage(face);
     if (face) slot.prepend(face);
   }
 
   /* ---- layout / scaling ---- */
-  let vw = 0, vh = 0, scale = 1;
+  let vw = 0, vh = 0, scale = 1, curShift = 0;
   function layout() {
     dbgCall("layout");
     measureRoot();
@@ -2661,6 +2672,7 @@ void main() {
     } else {
       shL = 0; shW = PAGE_W + BOARD;
     }
+    curShift = shift;
     setVar(book, "--shift", `${shift.toFixed(2)}px`);
     setVar(shadow, "--shift", `${shift.toFixed(2)}px`);
     setVar(shadow, "--shl", `${shL.toFixed(2)}px`);
@@ -2892,7 +2904,7 @@ void main() {
      Add data-fixed to a note to opt out. Also flags overflowing pages in dev mode. */
   const FIT_MARGIN = 28;            // content must end this far above the page bottom
   const fitted = [];
-  /* Fit and fill every page once fonts are loaded (measured on clones, so pages never leave their place):
+  /* Fit and fill each page once fonts are loaded (measured on clones, so pages never leave their place; see fitPage):
      - auto-fit: content too long for the page → smaller type (and figures), down to 90 %;
      - auto-fill: content ending above ~80 % of the page → larger type, a little more line-height and spacing,
        then wider figures, until it ends at ~85–92 % (never past the bottom margin). Exempt: endpaper, title,
@@ -2901,7 +2913,7 @@ void main() {
   const nBox = (n, base) => { const r = n.getBoundingClientRect(); return { top: r.top - base.top, bottom: r.bottom - base.top, left: r.left - base.left, right: r.right - base.left }; };
   const nHit = (a, b) => a.top < b.bottom - 2 && a.bottom > b.top + 2 && a.left < b.right && a.right > b.left;
   /* Can every margin note on this (clone of a) page sit without covering text — where it is, or in a free gap
-     within reach (the same rule fitNotes() applies), at 82 % size at worst? */
+     within reach (the same rule fitNotesOne() applies), at 82 % size at worst? */
   function notesPlaceable(face) {
     const base = face.getBoundingClientRect();
     const pg = face.querySelector(".tj-page");
@@ -2921,127 +2933,150 @@ void main() {
     }
     return true;
   }
-  function autoFit() {
-    dbgCall("autoFit");
-    const probe = el("div", "tj-slot tj-slot-right");
-    probe.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden";
-    root.querySelector(".tj-stage").append(probe);
-    const LIMIT = PAGE_H - FIT_MARGIN, LO = 0.85 * PAGE_H, HI = 0.92 * PAGE_H;
-    const bottomOf = (face) => {
-      const base = face.getBoundingClientRect().top;
-      const pg = face.querySelector(".tj-page");
-      return Math.max(0, ...[...pg.children].filter((ch) => !ch.matches("aside.note, aside.dmnote, .blot, figure.loose")).map((ch) => ch.getBoundingClientRect().bottom - base));
-    };
-    const apply = (f, v) => {
-      f.style.setProperty("--fit", String(v.fit));
-      f.style.setProperty("--lhk", String(v.lhk ?? 1));
-      f.style.setProperty("--pk", String(v.pk ?? 1));
-      f.style.setProperty("--fw", String(v.fw ?? 1));
-    };
-    for (const face of pages) {
-      const c = face.cloneNode(true);
-      c.removeAttribute("id");
-      for (const k of ["--fit", "--lhk", "--pk", "--fw"]) c.style.removeProperty(k);
-      probe.append(c);
-      let v = { fit: 1 }, bottom = bottomOf(c);
-      const start = bottom;
-      const exempt = face.matches(".is-endpaper, .is-title, .is-closing") || face.dataset.sparse != null || !!face.querySelector("figure.loose");   // (a loose sheet lies in the free space)
-      if (bottom > LIMIT) {                                   // too long: shrink
-        while (bottom > LIMIT && v.fit > 0.905) {
-          v = { fit: Math.round((v.fit - 0.02) * 100) / 100 };
-          apply(c, v); bottom = bottomOf(c);
-        }
-        fitted.push({ page: +face.dataset.idx, fit: v.fit });
-      } else if (!exempt && bottom < 0.8 * PAGE_H && bottom > 0) {   // too empty: grow
-        let best = { ...v }, bestB = bottom;
-        const needNotes = notesPlaceable(c);      // don't let the text grow into the room its notes need
-        const tryV = (nv) => {
-          apply(c, nv);
-          const nb = bottomOf(c);
-          if ((nb <= Math.min(LIMIT, HI) || (nb <= LIMIT && bestB < LO)) && (!needNotes || notesPlaceable(c))) { best = nv; bestB = nb; return nb; }
-          apply(c, best);
-          return null;
-        };
-        // 1. type: size, a touch of line-height, more paragraph spacing
-        for (let f = 1.02; f <= 1.121 && bestB < LO; f += 0.02) {
-          const k = f - 1;
-          if (tryV({ fit: +f.toFixed(2), lhk: +(1 + k * 0.45).toFixed(3), pk: +(1 + k * 4).toFixed(2), fw: best.fw ?? 1 }) === null) break;
-        }
-        // 2. figures, up to full width
-        for (let w = 1.06; w <= 1.42 && bestB < LO; w += 0.06) {
-          if (tryV({ ...best, fw: +w.toFixed(2) }) === null) break;
-        }
-        v = best; bottom = bestB;
-        apply(c, v);
+  const LIMIT = PAGE_H - FIT_MARGIN, LO = 0.85 * PAGE_H, HI = 0.92 * PAGE_H;
+  const fitVars = ["--fit", "--lhk", "--pk", "--fw"];
+  const applyFit = (f, v) => {
+    f.style.setProperty("--fit", String(v.fit));
+    f.style.setProperty("--lhk", String(v.lhk ?? 1));
+    f.style.setProperty("--pk", String(v.pk ?? 1));
+    f.style.setProperty("--fw", String(v.fw ?? 1));
+  };
+  const bottomOf = (face) => {
+    const base = face.getBoundingClientRect().top;
+    const pg = face.querySelector(".tj-page");
+    return Math.max(0, ...[...pg.children].filter((ch) => !ch.matches("aside.note, aside.dmnote, .blot, figure.loose")).map((ch) => ch.getBoundingClientRect().bottom - base));
+  };
+  function autoFitOne(face, probe) {
+    const c = face.cloneNode(true);
+    c.removeAttribute("id");
+    for (const k of fitVars) c.style.removeProperty(k);
+    probe.append(c);
+    let v = { fit: 1 }, bottom = bottomOf(c);
+    const start = bottom;
+    const exempt = face.matches(".is-endpaper, .is-title, .is-closing") || face.dataset.sparse != null || !!face.querySelector("figure.loose");   // (a loose sheet lies in the free space)
+    if (bottom > LIMIT) {                                   // too long: shrink
+      while (bottom > LIMIT && v.fit > 0.905) {
+        v = { fit: Math.round((v.fit - 0.02) * 100) / 100 };
+        applyFit(c, v); bottom = bottomOf(c);
       }
-      if (v.fit !== 1 || (v.fw ?? 1) !== 1) apply(face, v);
-      else for (const k of ["--fit", "--lhk", "--pk", "--fw"]) face.style.removeProperty(k);
-      if (v.fit > 1 || (v.fw ?? 1) > 1) fillLog.push({ page: +face.dataset.idx, from: Math.round((100 * start) / PAGE_H), to: Math.round((100 * bottom) / PAGE_H), fit: v.fit, fw: v.fw ?? 1 });
-      face._fill = bottom / PAGE_H;
-      face._exempt = exempt;
-      c.remove();
+      fitted.push({ page: +face.dataset.idx, fit: v.fit });
+    } else if (!exempt && bottom < 0.8 * PAGE_H && bottom > 0) {   // too empty: grow
+      let best = { ...v }, bestB = bottom;
+      const needNotes = notesPlaceable(c);      // don't let the text grow into the room its notes need
+      const tryV = (nv) => {
+        applyFit(c, nv);
+        const nb = bottomOf(c);
+        if ((nb <= Math.min(LIMIT, HI) || (nb <= LIMIT && bestB < LO)) && (!needNotes || notesPlaceable(c))) { best = nv; bestB = nb; return nb; }
+        applyFit(c, best);
+        return null;
+      };
+      // 1. type: size, a touch of line-height, more paragraph spacing
+      for (let f = 1.02; f <= 1.121 && bestB < LO; f += 0.02) {
+        const k = f - 1;
+        if (tryV({ fit: +f.toFixed(2), lhk: +(1 + k * 0.45).toFixed(3), pk: +(1 + k * 4).toFixed(2), fw: best.fw ?? 1 }) === null) break;
+      }
+      // 2. figures, up to full width
+      for (let w = 1.06; w <= 1.42 && bestB < LO; w += 0.06) {
+        if (tryV({ ...best, fw: +w.toFixed(2) }) === null) break;
+      }
+      v = best; bottom = bestB;
+      applyFit(c, v);
     }
-    probe.remove();
-    if (data.dev) {
-      if (fitted.length) console.warn("[journal] auto-fit:", fitted.map((f) => `page ${f.page} → ${Math.round(f.fit * 100)}%`).join(", "));
-      const low = pages.filter((f) => !f._exempt && f._fill < 0.65).map((f) => `${f.dataset.idx} (${f.dataset.tab?.split("·")[0].trim()}, ${Math.round(f._fill * 100)}%)`);
-      if (low.length) console.warn("[journal] under-filled (< 65 % after auto-fill):", low.join("; "));
-    }
+    if (v.fit !== 1 || (v.fw ?? 1) !== 1) applyFit(face, v);
+    else for (const k of fitVars) face.style.removeProperty(k);
+    if (v.fit > 1 || (v.fw ?? 1) > 1) fillLog.push({ page: +face.dataset.idx, from: Math.round((100 * start) / PAGE_H), to: Math.round((100 * bottom) / PAGE_H), fit: v.fit, fw: v.fw ?? 1 });
+    face._fill = bottom / PAGE_H;
+    face._exempt = exempt;
+    c.remove();
+  }
+  function fitReport() {
     root.dataset.autofit = JSON.stringify(fitted);
+    if (!data.dev) return;
+    if (fitted.length) console.warn("[journal] auto-fit:", fitted.map((f) => `page ${f.page} → ${Math.round(f.fit * 100)}%`).join(", "));
+    const low = pages.filter((f) => !f._exempt && f._fill < 0.65).map((f) => `${f.dataset.idx} (${f.dataset.tab?.split("·")[0].trim()}, ${Math.round(f._fill * 100)}%)`);
+    if (low.length) console.warn("[journal] under-filled (< 65 % after auto-fill):", low.join("; "));
   }
 
-  function fitNotes() {
-    const probe = el("div", "tj-slot tj-slot-right");
-    probe.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden";
-    root.querySelector(".tj-stage").append(probe);
-    const box = (n, base) => { const r = n.getBoundingClientRect(); return { top: r.top - base.top, bottom: r.bottom - base.top, left: r.left - base.left, right: r.right - base.left }; };
-    const hit = (a, b) => a.top < b.bottom - 2 && a.bottom > b.top + 2 && a.left < b.right && a.right > b.left;
-    for (const face of pages) {
-      const c = face.cloneNode(true);
-      c.removeAttribute("id");
-      probe.append(c);
-      const base = c.getBoundingClientRect();
-      const pg = c.querySelector(".tj-page");
-      const blocks = [...pg.children].filter((ch) => !ch.matches("aside.note, aside.dmnote, .blot")).map((ch) => ({ ...box(ch, base), loose: ch.matches("figure.loose") })).filter((b) => b.bottom - b.top > 1);
-      const lastBottom = Math.max(0, ...blocks.filter((b) => !b.loose).map((b) => b.bottom));   // (a loose sheet may stick out)
-      if (lastBottom > PAGE_H - FIT_MARGIN) {
-        if (data.dev) { face.classList.add("is-overflowing"); console.warn("[journal] page overflows by", Math.round(lastBottom - PAGE_H + FIT_MARGIN), "px:", face.dataset.idx, face.dataset.tab); }
-      }
-      const notes = [...pg.querySelectorAll(":scope > aside.note")];
-      const origs = [...face.querySelectorAll(".tj-page > aside.note")];
-      notes.forEach((n, i) => {
-        if (n.dataset.fixed != null) return;
-        let nb = box(n, base);
-        if (!blocks.some((b) => hit(nb, b)) && nb.bottom <= PAGE_H - 6) return;   // on text, or running off the page
-        const rel = blocks.filter((b) => b.right > nb.left && b.left < nb.right).sort((a, b) => a.top - b.top);
-        const gaps = [];
-        let y = 6;
-        for (const b of rel) { if (b.top - y > 0) gaps.push([y, b.top]); y = Math.max(y, b.bottom); }
-        gaps.push([y, PAGE_H - 6]);
-        // try the note at full size, then a little smaller (people do write smaller to squeeze a note in)
-        for (const k of [1, 0.9, 0.82, 0.74]) {
-          if (k < 1) { n.style.setProperty("--nfs", String(k)); nb = box(n, base); }
-          const h = nb.bottom - nb.top + 3, cy = (nb.top + nb.bottom) / 2;
-          let best = null, bd = Infinity;
-          for (const [g0, g1] of gaps) {
-            if (g1 - g0 < h) continue;
-            const top = clamp(cy - h / 2, g0, g1 - h);
-            const d = Math.abs(top + h / 2 - cy);
-            if (d < bd) { bd = d; best = top; }
-          }
-          if (best != null && bd < 140) {
-            const newTop = n.offsetTop + (best + 1.5 - nb.top);
-            origs[i].style.setProperty("--y", `${((newTop / PAGE_H) * 100).toFixed(2)}%`);
-            if (k < 1) origs[i].style.setProperty("--nfs", String(k));
-            return;
-          }
-        }
-        if (data.dev) console.warn("[journal] note overlaps text, no free gap nearby:", face.dataset.idx, n.textContent.trim().slice(0, 40));
-      });
-      c.remove();
+  function fitNotesOne(face, probe) {
+    const c = face.cloneNode(true);
+    c.removeAttribute("id");
+    probe.append(c);
+    const base = c.getBoundingClientRect();
+    const pg = c.querySelector(".tj-page");
+    const blocks = [...pg.children].filter((ch) => !ch.matches("aside.note, aside.dmnote, .blot")).map((ch) => ({ ...nBox(ch, base), loose: ch.matches("figure.loose") })).filter((b) => b.bottom - b.top > 1);
+    const lastBottom = Math.max(0, ...blocks.filter((b) => !b.loose).map((b) => b.bottom));   // (a loose sheet may stick out)
+    if (lastBottom > PAGE_H - FIT_MARGIN) {
+      if (data.dev) { face.classList.add("is-overflowing"); console.warn("[journal] page overflows by", Math.round(lastBottom - PAGE_H + FIT_MARGIN), "px:", face.dataset.idx, face.dataset.tab); }
     }
-    probe.remove();
+    const notes = [...pg.querySelectorAll(":scope > aside.note")];
+    const origs = [...face.querySelectorAll(".tj-page > aside.note")];
+    notes.forEach((n, i) => {
+      if (n.dataset.fixed != null) return;
+      let nb = nBox(n, base);
+      if (!blocks.some((b) => nHit(nb, b)) && nb.bottom <= PAGE_H - 6) return;   // on text, or running off the page
+      const rel = blocks.filter((b) => b.right > nb.left && b.left < nb.right).sort((a, b) => a.top - b.top);
+      const gaps = [];
+      let y = 6;
+      for (const b of rel) { if (b.top - y > 0) gaps.push([y, b.top]); y = Math.max(y, b.bottom); }
+      gaps.push([y, PAGE_H - 6]);
+      // try the note at full size, then a little smaller (people do write smaller to squeeze a note in)
+      for (const k of [1, 0.9, 0.82, 0.74]) {
+        if (k < 1) { n.style.setProperty("--nfs", String(k)); nb = nBox(n, base); }
+        const h = nb.bottom - nb.top + 3, cy = (nb.top + nb.bottom) / 2;
+        let best = null, bd = Infinity;
+        for (const [g0, g1] of gaps) {
+          if (g1 - g0 < h) continue;
+          const top = clamp(cy - h / 2, g0, g1 - h);
+          const d = Math.abs(top + h / 2 - cy);
+          if (d < bd) { bd = d; best = top; }
+        }
+        if (best != null && bd < 140) {
+          const newTop = n.offsetTop + (best + 1.5 - nb.top);
+          origs[i].style.setProperty("--y", `${((newTop / PAGE_H) * 100).toFixed(2)}%`);
+          if (k < 1) origs[i].style.setProperty("--nfs", String(k));
+          return;
+        }
+      }
+      if (data.dev) console.warn("[journal] note overlaps text, no free gap nearby:", face.dataset.idx, n.textContent.trim().slice(0, 40));
+    });
+    c.remove();
   }
+
+  /* The fitting measures a clone of each page, ~25 ms a page: for a whole book that was seconds of a blocked page before
+     it opened, and again when the other book was fetched (the click on it waited). So no page is fitted before it is
+     needed: a page is fitted the moment it is about to be shown or prepared for a turn (place, cloneFace), and the rest
+     in idle time, nearest the reader first. */
+  const pageSet = new Set(pages);
+  let fitProbeEl = null, fitReady = false;   // (no fitting before the fonts are in: see the mount)
+  function fitPage(face) {
+    if (!fitReady || !face || face._fitted || !pageSet.has(face)) return;
+    face._fitted = true;
+    if (!fitProbeEl?.isConnected) {
+      fitProbeEl = el("div", "tj-slot tj-slot-right");
+      fitProbeEl.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden";
+      stage.append(fitProbeEl);
+    }
+    autoFitOne(face, fitProbeEl);
+    fitNotesOne(face, fitProbeEl);
+  }
+  let fitTimer = 0;
+  const idle = window.requestIdleCallback ? (f) => requestIdleCallback(f) : (f) => setTimeout(() => f(null), 150);   // (Safari: no idle callbacks)
+  function fitIdle(deadline) {
+    fitTimer = 0;
+    const todo = pages.filter((f) => !f._fitted);
+    if (!todo.length) { fitProbeEl?.remove(); fitReport(); return; }
+    if (!gesture) {   // (never during a turn: one page is one long task)
+      const at = restingSpread();
+      todo.sort((a, b) => Math.abs(a._spread - at) - Math.abs(b._spread - at));
+      const t0 = performance.now();
+      for (const f of todo) {
+        fitPage(f);
+        if (deadline ? deadline.timeRemaining() < 12 : performance.now() - t0 > 12) break;
+      }
+    }
+    fitTimer = idle(fitIdle);
+  }
+  const fitAll = () => { for (const f of pages) fitPage(f); fitReport(); };
 
   /* ---- ambience ----
      Lamp flicker, dust motes, ship sway/bob are CSS animations of opacity/transform only (compositor), and
@@ -3423,36 +3458,41 @@ void main() {
     else lastNow = 0;
   }
   function kick() { if (!raf) raf = reqFrame("kick", frame); }
-  // web fonts load lazily: load every hand explicitly before measuring note collisions / overflow
+  // web fonts load lazily: load every face the pages may use (its Latin range: italics, weights and the minor hands too)
+  // before any page is measured. A face that only starts loading when the fitting first meets it is measured in a
+  // fallback font, and its page is fitted wrong for good (the old wait for every picture used to hide this).
   if (document.fonts) {
     await fontCss;
+    const latin = (f) => !f.unicodeRange || /U\+0+-0*FF\b/i.test(f.unicodeRange) || /^U\+0-10FFFF$/i.test(f.unicodeRange);
     await Promise.race([
-      Promise.all([hand.family, '"Covered By Your Grace"', '"Cedarville Cursive"', '"IM Fell English"', ...(pages.some((q) => q.dataset.vanish) ? ['"Uncial Antiqua"'] : []), ...(pages.some((q) => q.querySelector("aside.note.dm")) ? ['"Reenie Beanie"'] : []), ...(pages.some((q) => q.querySelector("h1.title")) ? ['"Cinzel Decorative"'] : [])].map((f) => document.fonts.load(`20px ${f}`).catch(() => {}))),
-      new Promise((r) => setTimeout(r, 4000)),
+      Promise.all([...document.fonts].filter(latin).map((f) => f.load().catch(() => {}))),
+      new Promise((r) => setTimeout(r, 10000)),
     ]);
     await document.fonts.ready;
   }
-  // …and every illustration: an image that hasn't loaded yet measures 0 px tall, so its page would be fitted as if
-  // it were nearly empty (scaled up, text in one-word lines). Missing art is already a placeholder (complete).
+  // …and every illustration without its size: an image that hasn't loaded yet measures 0 px tall, so its page would be
+  // fitted as if it were nearly empty. The build gives every picture its width and height, so this waits for none of
+  // them (it used to wait for every picture of the book to download before the book could open).
   await Promise.race([
-    Promise.all(imgs.map((i) => (i.complete ? 0 : new Promise((r) => { i.addEventListener("load", r, { once: true }); i.addEventListener("error", r, { once: true }); })))),
+    Promise.all(imgs.filter((i) => !i.hasAttribute("width")).map((i) => (i.complete ? 0 : new Promise((r) => { i.addEventListener("load", r, { once: true }); i.addEventListener("error", r, { once: true }); })))),
     new Promise((r) => setTimeout(r, 10000)),
   ]);
   // the fitting measures clones of the pages; Firefox loads a cloned image again (asynchronously, even from cache), so a
   // clone would measure 0 px tall: give every picture its intrinsic size up front (its box is then right before it loads)
   for (const i of imgs) if (i.naturalWidth && !i.hasAttribute("width")) { i.setAttribute("width", i.naturalWidth); i.setAttribute("height", i.naturalHeight); }
   await shapeFloats();
-  autoFit();
-  fitNotes();
+  fitReady = true;
+  for (const q of vPages) fitPage(q);   // (pages whose words vanish are measured with every word present: before vanishRestore)
   for (const d of leafCache.values()) d.box.remove();   // rebuild clones with the fitted pages
   leafCache.clear();
   curS = -1;
   vanishRestore();   // (after fitting: the pages were measured with every word present)
-  // decode the first spreads before lifting the curtain
-  await Promise.all(imgs.slice(0, 4).map((i) => i.decode?.().catch(() => {})));
+  // decode the first spreads before lifting the curtain (on a slow line, not for longer than 1.5 s: they come in as they load)
+  await Promise.race([Promise.all(imgs.slice(0, 4).map((i) => i.decode?.().catch(() => {}))), new Promise((r) => setTimeout(r, 1500))]);
   pRender = scrollPos();
   update(true);
   loading.classList.add("is-done");
+  fitTimer = idle(fitIdle);
   mountNotes({
     root, stage, book, pages, volume: vol.volume || 1, build: data.build || "dev", pbar, psheet, whoRow, mapEl: M.map,
     mode: () => mode,
@@ -3485,7 +3525,13 @@ void main() {
       gesture = null; pRender = restP(s); pVel = 0;
       update(true);
     },
-    closedRect() {
+    /** where the closed book lies on screen: as it lies now, or (which = "front" | "back", two-page layout) where it
+        would lie shut on its front or back board, wherever it is open now */
+    closedRect(which) {
+      if (which && mode === "double") {
+        const r = slotR.getBoundingClientRect(), k = r.width / PAGE_W, origin = r.left - curShift * k;
+        return { x: origin - (PAGE_W / 2 + (which === "back" ? BOARD : 0)) * k, y: r.top - BOARD * k, w: (PAGE_W + BOARD) * k, h: (PAGE_H + 2 * BOARD) * k };
+      }
       const { s } = locate(pRender);
       const el = s >= leaves.length ? slotL.querySelector(".tj-backcover") || slotL : $(".tj-leafbox:not(.is-parked) .tj-cover") || slotR;
       const r = el.getBoundingClientRect();
@@ -3518,6 +3564,8 @@ void main() {
     pageWaypoints: () => pageWp.slice(),
     waypoints: () => M.wps.map((w) => ({ id: w.id, sheet: w.sheet, len: Math.round(w.len) })),
     autofit: () => fitted,
+    /** fit every page now (they are otherwise fitted on demand and in idle time) */
+    fitAll,
     autofill: () => fillLog,
     /** dev: can page i's notes be placed at its natural size (no fit/fill)? */
     notesOkUnfilled(i) {
@@ -3552,8 +3600,8 @@ void main() {
    (mounted only once it is about to be needed) and lies as a small closed book at the edge of the desk.
    Reading past the closed back cover of Book I brings Book II, closed, onto the desk; going back past Book II's closed
    front cover brings Book I back, closed on its last page. A click on the book at the edge swaps them too (the open
-   book is closed first). The swap: the closed book shrinks onto the edge of the desk while the other grows from there into
-   its place, and the desk crossfades underneath (DM round 27).
+   book shuts into its cover at once). The swap: the closed book shrinks onto the edge of the desk while the other grows
+   from there into its place, and the desk crossfades underneath (DM round 27).
    Expects mountJournal (journal.js) in the same module. */
 async function mountShelf(cfg) {
   const flow = document.getElementById("tj-flow"), dock = document.getElementById("tj-dock");
@@ -3632,20 +3680,19 @@ async function mountShelf(cfg) {
 
   // while the books change places, no input reaches either journal; and the scroll that carried the reader across keeps
   // being swallowed until the wheel rests (QUIET_MS), so the arriving book lies closed until the next scroll. Gaps are
-  // taken on the inputs' own time, and an input that waited for a busy main thread (the arriving book settling in)
-  // never ends the swallowing: its gap is the wait, not a rest of the wheel.
-  const QUIET_MS = 250, LATE_MS = 60;
+  // taken on the inputs' own time; an input that waited for a busy main thread (the arriving book settling in) may be
+  // several notches merged, so within a second of the last one it still counts as the same spin.
+  const QUIET_MS = 250, LATE_MS = 60, MERGED_MS = 1000;
   let lastInput = 0, settling = false;
   const block = (e) => {
     const now = performance.now(), at = e.timeStamp || now, gap = at - lastInput;
     lastInput = at;
     if (e.type === "keydown") { if (busy) { e.preventDefault(); e.stopImmediatePropagation(); } return; }
-    if (busy || (settling && (gap < QUIET_MS || now - at > LATE_MS))) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    if (busy || (settling && (gap < QUIET_MS || (now - at > LATE_MS && gap < MERGED_MS)))) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     settling = false;
   };
   for (const ev of ["wheel", "touchmove", "keydown"]) addEventListener(ev, block, { capture: true, passive: false });
 
-  const rectOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
   /* A closed book as the engine draws it (buildCover / buildBackCover from journal.js, styled by the journal's CSS inside
      a .tj-root of the book's volume): its front cover, and its back board (shown with .show-back). Design size
      BOARD_W × BOARD_H (a page and its board); placed and scaled by the caller. */
@@ -3692,37 +3739,44 @@ async function mountShelf(cfg) {
     busy = true;
     other.classList.add("is-busy");
     const from = books[cur], to = books[j];
+    const ready = mount(to, true);   // (built while the books fly: the flight never waits for it)
+    let pA = null, pB = null;
     try {
-      // the open book closes first (a click on the other book while reading): back to its front cover
-      const A = from.api;
-      if (A.restingSpread() !== 0 && A.restingSpread() < A.spreadCount() - 1) {
-        A.jumpToSpread(0);
-        await new Promise((r) => setTimeout(r, 1300));
-      }
-      const B = await mount(to, true);
-      B.place(land === "start" ? 0 : B.spreadCount() - 1);
-      const rA = A.closedRect(), rB = B.closedRect();
+      // The book being read shuts at once into its closed cover (the proxy takes its place), and the other one flies to
+      // where this one lies shut: both books share the layout, so that place is known before the other book is built.
+      // (It used to close page by page first, then build the other book, and only then fly: seconds after the click.)
+      const A = from.api, nA = A.spreadCount(), sA = A.restingSpread();
+      const backA = sA >= nA - 1, backB = land === "end", open = sA > 0 && !backA;
+      const rA = A.closedRect(backA ? "back" : "front"), rB = A.closedRect(backB ? "back" : "front");
       // the book in the corner, as laid out (its layout box, before the tilt)
       let rT = other.offsetWidth ? { x: other.offsetLeft, y: other.offsetTop, w: other.offsetWidth, h: other.offsetHeight } : { w: 0 };
       if (!rT.w) rT = { x: -0.15 * rB.w, y: innerHeight - 0.2 * rB.h, w: 0.4 * rB.w, h: 0.4 * rB.h };   // (phones: no book at the edge)
       const tilt = parseFloat(getComputedStyle(other).getPropertyValue("--tilt")) || -14;
-      const dur = reduced ? 1 : 1350 * (+q.get("slowswap") || 1), ease = "cubic-bezier(.5,.05,.2,1)";
-      // a book closed on its back board turns over as it is picked up (and the arriving one, if it lands on its back)
-      const backA = A.restingSpread() >= A.spreadCount() - 1, backB = land === "end";
-      const pA = proxy(from, rA), pB = proxy(to, rT);
+      const dur = reduced ? 1 : 1350 * (+q.get("slowswap") || 1), ease = "cubic-bezier(.5,.05,.2,1)", t0 = performance.now();
+      pA = proxy(from, rA); pB = proxy(to, rT);
       pA.style.transform = still(rA, 0);
       pB.style.transform = still(rT, tilt);
       other.hidden = true;
       from.root.classList.add("is-handing-off");   // its book (and the end card) give way to the proxy
-      to.root.classList.add("is-arriving");
-      dock.classList.add("is-showing");
       const anims = [
         pA.animate([{ transform: still(rA, 0) }, { transform: onto(rA, rT, tilt) }], { duration: dur, easing: ease, fill: "forwards" }),
         pB.animate([{ transform: still(rT, tilt) }, { transform: onto(rT, rB, 0) }], { duration: dur, easing: ease, fill: "forwards" }),
         ...turnOver(pA, backA, false, dur), ...turnOver(pB, false, backB, dur),
-        dock.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur * 0.75, delay: dur * 0.2, easing: "ease-in-out", fill: "forwards" }),
       ];
+      if (open) anims.push(pA.animate([{ opacity: 0 }, { opacity: 1 }], { duration: reduced ? 1 : 220, easing: "ease-out" }));   // the open book fades into its cover
+      // the other desk comes up under the books once the other book is ready: during the flight, or right after it
+      let fade = null;
+      const arrived = ready.then((B) => {
+        B.place(backB ? B.spreadCount() - 1 : 0);
+        to.root.classList.add("is-arriving");
+        dock.classList.add("is-showing");
+        const left = dur - (performance.now() - t0);
+        fade = dock.animate([{ opacity: 0 }, { opacity: 1 }], { duration: reduced ? 1 : Math.max(350, left * 0.8), easing: "ease-in-out", fill: "forwards" });
+        return B;
+      });
       await Promise.all(anims.map((a) => a.finished));
+      const B = await arrived;
+      await fade.finished;
       // hand over, all in one task (one paint): the arriving book into the page flow, the leaving one into the dock
       dock.classList.remove("is-showing");
       for (const a of dock.getAnimations()) a.cancel();
@@ -3730,7 +3784,7 @@ async function mountShelf(cfg) {
       dock.append(from.root);
       A.freeze(true);
       B.freeze(false);
-      B.jumpToSpread(land === "start" ? 0 : B.spreadCount() - 1, true);
+      B.jumpToSpread(backB ? B.spreadCount() - 1 : 0, true);
       from.root.classList.remove("is-handing-off");
       to.root.classList.remove("is-arriving");
       cur = j;
@@ -3739,7 +3793,15 @@ async function mountShelf(cfg) {
       document.title = to.pageTitle || document.title;
       showOther();
       pA.remove();
-      pB.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, fill: "forwards" }).finished.then(() => pB.remove());
+      const p = pB;
+      p.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, fill: "forwards" }).finished.then(() => p.remove());
+      pA = pB = null;
+    } catch (err) {   // (the other book failed to load: put everything back as it was)
+      console.error("[shelf] swap failed:", err);
+      pA?.remove(); pB?.remove();
+      from.root.classList.remove("is-handing-off");
+      dock.classList.remove("is-showing");
+      showOther();
     } finally {
       busy = false;
       settling = true;
@@ -3755,7 +3817,8 @@ async function mountShelf(cfg) {
     if (busy) return;
     const A = books[cur].api, s = A.restingSpread(), n = A.spreadCount();
     const o = near(cur), toward = books.indexOf(o) > cur ? n - 1 - s : s;
-    if (toward <= 4) mount(o, true);
+    // (phones only fetch it: a second book built in the background doubles the memory, which a phone may not have)
+    if (toward <= 4 && !books[cur].root.classList.contains("is-single")) mount(o, true);
     else fetchData(o);
   };
   addEventListener("scroll", () => { clearTimeout(warm.t); warm.t = setTimeout(warm, 400); }, { passive: true });

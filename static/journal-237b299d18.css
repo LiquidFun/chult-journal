@@ -1188,6 +1188,7 @@ body { margin: 0; background: #120c08; color: #e9dcc0; }
 #tj-dock { position: fixed; inset: 0; overflow: hidden; z-index: 800; visibility: hidden; opacity: 0; pointer-events: none; }
 #tj-dock.is-showing { visibility: visible; }
 .tj-root.is-arriving .tj-book-wrap, .tj-root.is-handing-off .tj-book-wrap { opacity: 0; }
+.tj-root.is-handing-off .tj-book-wrap { transition: opacity .22s ease-out; }   /* (an open book fades into its flying cover) */
 .tj-root.is-handing-off .tj-end { opacity: 0; transition: opacity .25s ease; }
 
 /* the other book: closed, lying in the lower right corner of the desk (placed by shelf.js), running off the bottom edge;
