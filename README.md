@@ -23,8 +23,8 @@ blue capitals, Luth'ayen in pencil. Now and then a stamp marks a note from the D
 | Pages | 323 in two books, about 30,000 words |
 | Pictures in the books | 276, plus 23 portraits for the party sidebar and the two covers |
 | Pictures generated | 729, to arrive at those 276 (many drafts and corrections per picture) |
-| Rounds of revision | about 30: Book I went through 34 published versions, Book II through 26 |
-| Feedback from the Dungeon Master | 302 tracked items, 124 of them notes left directly on the pages |
+| Rounds of revision | about 30: Book I went through 35 published versions, Book II through 27 |
+| Feedback from the Dungeon Master | 303 tracked items, 124 of them notes left directly on the pages |
 | Human review | 20–30 hours |
 | Image generation cost | about $29 |
 | Code | about 5,000 lines of JavaScript and CSS, no framework |
@@ -36,6 +36,9 @@ blue capitals, Luth'ayen in pencil. Now and then a stamp marks a note from the D
   notes and the group chat, with Claude.
 - The pictures were made with Google's Nano Banana 2.1 image model from reference portraits of the characters. Each one
   was checked against the session notes and reworked over many rounds of feedback from the Dungeon Master.
+- The maps on the desk (Chult, Port Nyanzaru, Omu, the Fane and the six levels of the tomb) are the module's maps
+  redrawn in ink and watercolour and lettered in Oliver's hand; the routes were drawn and corrected by hand by the
+  Dungeon Master.
 - It is plain HTML, CSS and JavaScript with no framework. Each page turn is a paper fold computed frame by frame. The
   map on the desk follows the party's route, and Book II waits at the edge of the desk until you read past the end of
   Book I.
