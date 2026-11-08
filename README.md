@@ -47,9 +47,9 @@ blue capitals, Luth'ayen in pencil. Now and then a stamp marks a note from the D
 
 This repository holds only the built site: `index.html` and `static/`, where every file is named by a hash of its
 content. It is generated from the private campaign repository by `tools/export_web.py`, so don't edit it by hand. Every
-push becomes a [release](../../releases/latest) with the site packed as `chult.tar.gz`. The blog
-([LiquidFun/brutenis.net](https://github.com/LiquidFun/brutenis.net)) downloads the latest one before it builds and
-serves it at `/chult/`.
+push becomes a [release](../../releases/latest) with the site packed as `chult.tar.gz`. The release workflow then starts the
+blog's deploy ([LiquidFun/brutenis.net](https://github.com/LiquidFun/brutenis.net)), which downloads the latest release
+before it builds and serves it at `/chult/`.
 
 To read it locally, serve the folder with any static file server, e.g. `python3 -m http.server`, and open
 http://localhost:8000/.

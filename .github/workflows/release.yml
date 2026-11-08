@@ -1,6 +1,6 @@
 # Every push to main (a new export from the campaign repo) becomes a release whose asset chult.tar.gz is the built site
 # (index.html and static/). brutenis.net downloads releases/latest/download/chult.tar.gz before it builds and serves
-# it at /chult/ (scripts/fetch-chult.mjs there).
+# it at /chult/ (scripts/fetch-chult.mjs there); the last step starts that build.
 name: Release the site
 
 on:
@@ -43,3 +43,19 @@ jobs:
           gh release list --limit 100 --json tagName,createdAt \
             --jq 'sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
             while read -r t; do gh release delete "$t" --cleanup-tag --yes; done
+
+      # Start the blog's deploy (LiquidFun/brutenis.net, deploy.yml: workflow_dispatch), which downloads the release just
+      # made. This repo's own token cannot start workflows in another repository, so it takes a fine-grained token in the
+      # secret BRUTENIS_DEPLOY_TOKEN: repository access LiquidFun/brutenis.net only, permission Actions: read and write
+      # (it can start, re-run and cancel that repo's workflows; it cannot read secrets or change code). Without the
+      # secret the step only says so.
+      - name: Rebuild brutenis.net
+        env:
+          GH_TOKEN: ${{ secrets.BRUTENIS_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::BRUTENIS_DEPLOY_TOKEN is not set: start the blog's deploy by hand (brutenis.net → Actions → Deploy to Hetzner → Run workflow)."
+            exit 0
+          fi
+          gh workflow run deploy.yml --repo LiquidFun/brutenis.net --ref main
+          echo "Started brutenis.net's deploy: https://github.com/LiquidFun/brutenis.net/actions/workflows/deploy.yml"
