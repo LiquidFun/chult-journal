@@ -23,8 +23,8 @@ blue capitals, Luth'ayen in pencil. Now and then a stamp marks a note from the D
 | Pages | 323 in two books, about 30,000 words |
 | Pictures in the books | 276, plus 23 portraits for the party sidebar and the two covers |
 | Pictures generated | 729, to arrive at those 276 (many drafts and corrections per picture) |
-| Rounds of revision | about 30: Book I went through 31 published versions, Book II through 22 |
-| Feedback from the Dungeon Master | 289 tracked items, 124 of them notes left directly on the pages |
+| Rounds of revision | about 30: Book I went through 32 published versions, Book II through 23 |
+| Feedback from the Dungeon Master | 290 tracked items, 124 of them notes left directly on the pages |
 | Human review | 20–30 hours |
 | Image generation cost | about $29 |
 | Code | about 5,000 lines of JavaScript and CSS, no framework |
