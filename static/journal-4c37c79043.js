@@ -2684,7 +2684,8 @@ void main() {
       const onLeft = JL ? pl < (t > 0.5 ? JL.to : JL.from) : pl < s || (pl === s && t > 0.5) || isEnd;
       tb.el.classList.toggle("is-left", onLeft);
       tb.el.classList.toggle("is-right", !onLeft);
-      setHidden(tb.el, (s === 0 && t < 0.6) || isEnd || (s === L - 1 && t > 0.3));
+      // (they stay on the closed book too, sticking out of the top of the pages under the board: they used to wait until
+      // the cover was more than half open and then appeared from nowhere, DM 2026-11-08)
     }
 
     // which page are we on? (switch to the next spread's page halfway through the turn)
