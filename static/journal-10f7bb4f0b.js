@@ -1503,12 +1503,14 @@ async function mountJournal(root, data) {
       <nav class="tj-pbar" aria-label="The journal">
         <button type="button" data-p="map"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5 8.5 4l7 2.5L21 4v13.5L15.5 20l-7-2.5L3 20z M8.5 4v13.5 M15.5 6.5V20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span>Map</span></button>
         <button type="button" data-p="who"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="7.5" ry="9.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="10" r="2.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M7.4 17.2c1.2-2.4 2.8-3.4 4.6-3.4s3.4 1 4.6 3.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>Who's who</span></button>
-        <button type="button" data-p="marks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h11v17l-5.5-4-5.5 4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9.5 8.5h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>Bookmarks</span></button>
+        <button type="button" data-p="marks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h11v17l-5.5-4-5.5 4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9.5 8.5h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>Bookmarks</span></button>${data.other ? `
+        <button type="button" data-p="book"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h11.5a2 2 0 0 1 2 2v13H7a2 2 0 0 1-2-2z M5 17.5a2 2 0 0 1 2-2h11.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 8.5h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>${esc(data.other.title)}</span></button>` : ""}
       </nav>
       <div class="tj-psheet" hidden role="dialog" aria-modal="true"><div class="tj-psheet-card"><div class="tj-psheet-head"><b></b><button type="button" class="tj-psheet-close" aria-label="Close">×</button></div><div class="tj-psheet-body"></div></div></div>
       <div class="tj-hint">Scroll to open the journal</div>
       <div class="tj-end" role="dialog" aria-label="End of the book">
-        <h2>${esc(vol.card[0])}</h2>${vol.card[1] ? `<p>${esc(vol.card[1])}</p>` : ""}${vol.card[2] ? `<p class="sig">${esc(vol.card[2])}</p>` : ""}
+        <h2>${esc(vol.card[0])}</h2>${vol.card[1] ? `<p>${esc(vol.card[1])}</p>` : ""}${vol.card[2] ? `<p class="sig">${esc(vol.card[2])}</p>` : ""}${data.other?.next ? `
+        <button type="button" class="tj-end-go">Open ${esc(data.other.title)} <span aria-hidden="true">→</span></button>` : ""}
       </div>
       <div class="tj-loading">opening the journal…</div>
     </div>
@@ -2321,10 +2323,11 @@ async function mountJournal(root, data) {
     let end = 0;
     for (const l of w.querySelectorAll(".vl")) {
       const [fx, fy, fr, d, del] = l.dataset.f.split(",").map(Number);
-      const o = { duration: reduced ? 1400 : d, delay: del, fill: "both" };
-      if (!reduced) l.animate([{ transform: "translate(0px, 0px) rotate(0deg) scale(1)" }, { transform: `translate(${fx}px, ${fy}px) rotate(${fr}deg) scale(.72)` }],
+      // (the letters fly even with reduced motion: the wind is the point of the page, and it is slow)
+      const o = { duration: d, delay: del, fill: "both" };
+      l.animate([{ transform: "translate(0px, 0px) rotate(0deg) scale(1)" }, { transform: `translate(${fx}px, ${fy}px) rotate(${fr}deg) scale(.72)` }],
         { ...o, easing: "cubic-bezier(.25, .55, .4, 1)" });
-      l.animate([{ opacity: 1 }, { opacity: 1, offset: reduced ? 0 : 0.3 }, { opacity: 0 }], { ...o, easing: "linear" });
+      l.animate([{ opacity: 1 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { ...o, easing: "linear" });
       end = Math.max(end, o.duration + del);
     }
     w.animate([{ opacity: 0.3 }, { opacity: 0.25, offset: 0.2 }, { opacity: 0 }], { pseudoElement: "::before", duration: STAIN_MS, easing: "ease-in-out", fill: "both" });
@@ -2343,7 +2346,7 @@ async function mountJournal(root, data) {
   }
   /* ---- a creature crossing a page once it's open: data-critter="ant" on a section, or the book's `critters` by page key
      ("s23.3" = the third page of session 23). DM: a red ant over Ofar's ant nightmare (Book I, S23 p3). Once per visit
-     of the spread, after it has settled; nothing runs otherwise, and nothing at all with reduced motion. ---- */
+     of the spread, after it has settled; nothing runs otherwise. (Art: it runs with reduced motion too.) ---- */
   const critterKeys = vol.critters ?? ((vol.volume || 1) === 1 ? { "s23.3": "ant" } : {});
   { const seen = {}; for (const q of pages) { const s = q.dataset.session || "0"; seen[s] = (seen[s] || 0) + 1; const k = critterKeys[`s${s}.${seen[s]}`]; if (k && !q.dataset.critter) q.dataset.critter = k; } }
   const hasCritters = pages.some((q) => q.dataset.critter === "ant");
@@ -2356,7 +2359,7 @@ async function mountJournal(root, data) {
     crit.el = null;
   }
   function critterCheck() {
-    if (!hasCritters || reduced) return;
+    if (!hasCritters) return;
     if (frozen) { critterStop(); return; }
     if (curS !== crit.spread) { crit.spread = curS; crit.done = false; critterStop(); }
     if (crit.done || gesture || document.hidden || Math.abs(pRender - scrollPos()) > 0.002 || locate(pRender).t > 0.0003) return;
@@ -2424,7 +2427,7 @@ async function mountJournal(root, data) {
   /* ---- spheres of annihilation (DM round 24): around a sphere the picture slowly bends. A live WebGL lens on top of the
      warp already baked into the image (tools/sphere_warp.py): <img data-sphere="cx cy r">, fractions of the untrimmed
      picture. Only while the spread rests and the tab is visible: one small canvas per sphere, ~30 fps; stopped (and its
-     context released) for any turn, drag or lift; nothing at all with reduced motion or without WebGL. ---- */
+     context released) for any turn, drag or lift; nothing without WebGL. (Art: it runs with reduced motion too.) ---- */
   const hasSpheres = pages.some((q) => q.querySelector("img[data-sphere], img[data-ants]"));
   const sph = { spread: -1, runs: [], retry: 0 };
   const SPH_FS = `precision mediump float;
@@ -2448,7 +2451,7 @@ void main() {
     for (const c of root.querySelectorAll("canvas.tj-sphere")) c.remove();   // (copies left in faces the engine cloned)
   }
   function sphereCheck() {
-    if (!hasSpheres || reduced) return;
+    if (!hasSpheres) return;
     if (frozen) { if (sph.spread !== -1) sphereStop(); return; }
     const rest = !gesture && !document.hidden && Math.abs(pRender - scrollPos()) <= 0.002 && locate(pRender).t <= 0.0003
       && (!F || F.kind !== "paper" || F.box.classList.contains("is-rest"));
@@ -2516,7 +2519,7 @@ void main() {
      animation; they should stay in this image only"). <img data-ants="x y x y …; x y …">: paths in fractions of the
      untrimmed picture, along the painted streams; ants walk each from its first point to its last, fading in and out at
      the ends, a little stop-and-go. A 2D canvas over the picture, ~30 fps, run by sphereCheck: only while the spread
-     rests, never with reduced motion (the painted ants stay in the picture either way). ---- */
+     rests (with reduced motion too: it is part of the picture). ---- */
   let antSprite = null;
   function antsWalk(img) {
     const T = data.trim?.[img.dataset.asset] || [0, 0, 1, 1], tw = T[2] - T[0], th = T[3] - T[1];
@@ -2763,7 +2766,7 @@ void main() {
      instead of on every frame. */
   function revealRoute(S, from, to, animate) {
     clearTimeout(revealTimers[S.key]);
-    const STEPS = !animate || reduced || Math.abs(to - from) < 1 ? 1 : 8, t0 = performance.now(), DUR = 950;
+    const STEPS = !animate || Math.abs(to - from) < 1 ? 1 : 8, t0 = performance.now(), DUR = 950;
     const ease = cubicBezier(0.45, 0.05, 0.3, 1);
     const step = () => {
       const k = STEPS === 1 ? 1 : clamp((performance.now() - t0) / DUR);
@@ -2799,7 +2802,7 @@ void main() {
       S.head.classList.toggle("is-off", !end && !(gi >= 0 && S.wps.some((w) => w.gi <= gi)));   // until a stop on this sheet is reached
     }
     const S = M.sheets[key];
-    if (prevGi !== gi && gi >= 0 && !reduced && mode === "double") {   // the head pulses at a new stop (restarted without forcing a layout)
+    if (prevGi !== gi && gi >= 0 && mode === "double") {   // the head pulses at a new stop (restarted without forcing a layout)
       S.head.querySelector("circle.pulse")?.animate([{ transform: "scale(.6)", opacity: 0.9 }, { transform: "scale(2.4)", opacity: 0 }],
         { duration: 1800, easing: "ease-out", iterations: 3 });
     }
@@ -2839,6 +2842,22 @@ void main() {
   });
   M.map.classList.toggle("is-openable", !!MV);
   /* ---- phones: a tab bar for the map, who's who and the bookmarks; the latter two open as a sheet from the bottom ---- */
+  // a book's bookmarks: the first page of each session (Book III: of each chapter), as [page index, page, key]
+  function markPages(qs, byChapter) {
+    const seen = new Set(), out = [];
+    qs.forEach((q, i) => {
+      const key = byChapter ? (q.dataset.tab || "").match(/Chapter\s+[IVXLC]+/)?.[0] : q.dataset.session;
+      if (key && !seen.has(key)) { seen.add(key); out.push([i, q, key]); }
+    });
+    return out;
+  }
+  function markButton(q, key, go) {
+    const [a2, b2] = (q.dataset.tab || key).split("·").map((t) => t.trim());
+    const it = el("button", "tj-pmark", `<span class="n">${esc(a2)}</span><span class="d">${esc(b2 || "")}</span>`);
+    it.type = "button";
+    it.addEventListener("click", go);
+    return it;
+  }
   let psOpener = null;
   function psOpen(kind, btn) {
     const head = psheet.querySelector("b");
@@ -2858,19 +2877,25 @@ void main() {
       }
       if (!whoNow.length) psBody.append(el("p", "tj-pempty", "Nobody yet."));
     } else {
-      head.textContent = vol.theme === "dm" ? "Chapters" : "Bookmarks";
+      const byChapter = vol.theme === "dm";
+      head.textContent = byChapter ? "Chapters" : "Bookmarks";
       const cur = contentPageAt(restingSpread());
-      const seen = new Set();
-      for (const q of pages) {
-        const key = vol.theme === "dm" ? (q.dataset.tab || "").match(/Chapter\s+[IVXLC]+/)?.[0] : q.dataset.session;
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        const [a2, b2] = (q.dataset.tab || key).split("·").map((t) => t.trim());
-        const it = el("button", "tj-pmark", `<span class="n">${esc(a2)}</span><span class="d">${esc(b2 || "")}</span>`);
-        it.type = "button";
-        if (cur && (vol.theme === "dm" ? (cur.dataset.tab || "").startsWith(key) : cur.dataset.session === key)) it.classList.add("is-here");
-        it.addEventListener("click", () => { psShut(); jumpTurn(q._spread); });
-        psBody.append(it);
+      const own = markPages(pages, byChapter).map(([, q, key]) => {
+        const it = markButton(q, key, () => { psShut(); jumpTurn(q._spread); });
+        if (cur && (byChapter ? (cur.dataset.tab || "").startsWith(key) : cur.dataset.session === key)) it.classList.add("is-here");
+        return it;
+      });
+      if (!data.other?.pagesHtml) psBody.append(...own);
+      else {   // web edition: both books' bookmarks, in order; the other book's from its page data (fetched, not mounted)
+        const theirs = el("div", "tj-pmarks");
+        const ours = [el("h3", "tj-pbook", esc(data.other.here)), ...own], them = [el("h3", "tj-pbook", esc(data.other.title)), theirs];
+        psBody.append(...(data.other.next ? [...ours, ...them] : [...them, ...ours]));
+        data.other.pagesHtml().then((html) => {
+          const t = document.createElement("template");
+          t.innerHTML = html;
+          theirs.replaceChildren(...markPages([...t.content.querySelectorAll("section.page")], false)
+            .map(([i, q, key]) => markButton(q, key, () => { psShut(); data.other.openAt(i); })));
+        }, () => theirs.replaceChildren(el("p", "tj-pempty", "Not to be found just now.")));
       }
     }
     psOpener = btn;
@@ -2887,7 +2912,20 @@ void main() {
     const btn = e.target.closest("button[data-p]");
     if (!btn) return;
     if (btn.dataset.p === "map") { if (MV) MV.open(mapGi, mapEnd); else mapToggle.click(); return; }
+    if (btn.dataset.p === "book") { data.other.open(); return; }
     psOpen(btn.dataset.p, btn);
+  });
+  endCard.querySelector(".tj-end-go")?.addEventListener("click", () => data.other.open());
+  // the end card lies over the closed book (phones especially): a sideways swipe across it counts as one across the book
+  let endSwipe = null;
+  endCard.addEventListener("pointerdown", (e) => { endSwipe = e.target.closest("button") ? null : { id: e.pointerId, x: e.clientX, y: e.clientY }; });
+  endCard.addEventListener("pointerup", (e) => {
+    const sw = endSwipe; endSwipe = null;
+    if (sw?.id !== e.pointerId) return;
+    const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+    if (dx < 0) { if (canLeave(1)) data.leave(1); }
+    else turnBack();
   });
   psheet.querySelector(".tj-psheet-close").addEventListener("click", psShut);
   psheet.addEventListener("click", (e) => { if (e.target === psheet) psShut(); });
@@ -3250,8 +3288,17 @@ void main() {
   }
   let press = null;
   const DRAG_START = 7;
+  // the running click / release turn ends now, where it was going (a finger reaching for the next page doesn't wait)
+  function settleTurn() {
+    const A = gesture?.anim;
+    if (!A) return;
+    gesture = null; pRender = A.final; pVel = 0; lastNow = 0; queued = 0; queuedLeave = 0;
+    endJump();
+    update(true);
+  }
   book.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || gesture?.anim) return;
+    if (e.button !== 0) return;
+    if (gesture?.anim) { if (e.pointerType === "mouse") return; settleTurn(); }
     if (e.target.closest("button, a, input, select, textarea, .tj-tab, .tj-map, .tj-loose, .tj-dm")) return;
     const [x, y] = toBook(e);
     if (y < -BOARD || y > PAGE_H + BOARD) return;
@@ -3259,8 +3306,9 @@ void main() {
     const single = mode === "single";
     if (root.classList.contains("is-notes") && !cornerZone(x, y, 0, true)) return;   // notes mode: the page is for selecting; corners still turn
     const back = single ? x < PAGE_W * 0.35 : x < 0;
-    if (!back && sp >= leaves.length) return;
-    if (back && sp <= 0) return;
+    // (phones: no page that way may still be a way out of the book, decided when the finger moves or lifts)
+    if (!back && sp >= leaves.length && !(single && canLeave(1))) return;
+    if (back && sp <= 0 && !(single && canLeave(-1))) return;
     const leaf = back ? sp - 1 : sp;
     const outer = true;   // drags turn from anywhere on the page (the pages aren't selectable, DM 124)
     press = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), leaf, back, outer, bx: x, by: y,
@@ -3274,7 +3322,7 @@ void main() {
     if (!press.moved && mode === "single") {        // phones: a swipe to the left turns forward, to the right back
       if (Math.abs(dx) < Math.abs(dy)) return;      // (vertical: the page scrolls, which turns pages too)
       const sp = restingSpread(), back = dx > 0, leaf = back ? sp - 1 : sp;
-      if (leaf < 0 || leaf >= leaves.length) { press = null; return; }
+      if (leaf < 0 || leaf >= leaves.length) { press = null; if (canLeave(back ? -1 : 1)) data.leave(back ? -1 : 1); return; }
       if (leaves[leaf].board) { press = null; (back ? turnBack : turnForward)(); return; }   // the covers flip whole
       Object.assign(press, { back, leaf, outer: true, board: false });
     }
@@ -3305,7 +3353,9 @@ void main() {
       if (Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > DRAG_START) return;   // a swipe (vertical ones are turns of their own), not a tap
       const quick = performance.now() - p.t0 < 500;
       const selecting = (getSelection?.().toString() || "").length > 0;
-      if (!cancelled && quick && !selecting) (p.back ? turnBack : turnForward)();
+      if (cancelled || !quick || selecting) return;
+      if (mode === "single" && canLeave(p.back ? -1 : 1)) data.leave(p.back ? -1 : 1);
+      else (p.back ? turnBack : turnForward)();
       return;
     }
     if (!gesture) return;
@@ -3511,6 +3561,7 @@ void main() {
     vanishReset: () => { vanishReset(); vanishCheck(); },
     vanishPages: () => vPages.map((q) => [q.dataset.vanish, +q.dataset.idx]),
     jumpToSpread, jumpTurn, layout,
+    pageSpread: (i) => pages[i]?._spread,
     spreadCount: () => leaves.length + 1,
     /** web edition (shelf.js): freeze / thaw this journal; show spread s at rest without touching the page scroll (frozen);
         where the closed book lies on screen (for the hand-over animation) */
@@ -3603,6 +3654,7 @@ void main() {
    front cover brings Book I back, closed on its last page. A click on the book at the edge swaps them too (the open
    book shuts into its cover at once). The swap: the closed book shrinks onto the edge of the desk while the other grows
    from there into its place, and the desk crossfades underneath (DM round 27).
+   Phones have no book at the edge: each journal gets the other book (`other`) for its tab bar and Book I's end card.
    Expects mountJournal (journal.js) in the same module. */
 async function mountShelf(cfg) {
   const flow = document.getElementById("tj-flow"), dock = document.getElementById("tj-dock");
@@ -3626,7 +3678,11 @@ async function mountShelf(cfg) {
       b.root.className = "tj-root";
       b.root.setAttribute("aria-label", `Oliver Lyonbrooke's journal, ${b.title}`);
       (frozen ? dock : flow).append(b.root);
-      b.api = await mountJournal(b.root, { ...(await fetchData(b)), ...opts, frozen,
+      // the other book, for the phones' tab bar and the end card ("Open Book II")
+      const o = near(books.indexOf(b)), j = books.indexOf(o);
+      const other = { title: o.title, here: b.title, next: j > books.indexOf(b), open: () => swap(j, "start"),
+        openAt: (page) => swap(j, "start", page), pagesHtml: () => fetchData(o).then((d) => d.pagesHtml) };
+      b.api = await mountJournal(b.root, { ...(await fetchData(b)), ...opts, frozen, other,
         canLeave: (dir) => canLeave(b, dir), leave: (dir) => swap(cur + dir, dir > 0 ? "start" : "end") });
       return b.api;
     })());
@@ -3735,7 +3791,7 @@ async function mountShelf(cfg) {
     return p;
   }
 
-  async function swap(j, land = "start") {
+  async function swap(j, land = "start", page = null) {   // (page: then open it at that page, e.g. a bookmark)
     if (busy || j === cur || !books[j]) return;
     busy = true;
     other.classList.add("is-busy");
@@ -3797,6 +3853,7 @@ async function mountShelf(cfg) {
       const p = pB;
       p.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, fill: "forwards" }).finished.then(() => p.remove());
       pA = pB = null;
+      if (page != null) setTimeout(() => B.jumpToSpread(B.pageSpread(page) ?? 0), reduced ? 0 : 300);   // (once the cover proxy has gone)
     } catch (err) {   // (the other book failed to load: put everything back as it was)
       console.error("[shelf] swap failed:", err);
       pA?.remove(); pB?.remove();
